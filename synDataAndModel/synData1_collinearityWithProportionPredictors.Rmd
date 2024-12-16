@@ -1,0 +1,97 @@
+---
+title: "Collinearity with Proportion Predictors"
+output: html_notebook
+---
+
+```{r, echo=TRUE, message=FALSE}
+# Library
+library(dataHelper);
+library(dplyr);
+```
+
+# Simulate synthetic data
+
+```{r}
+## Dimensions ####
+
+df.syn = genDimIds(
+    dimSize = c(30)
+  , dimName = "traveller_id"
+)
+
+## Fix effects ####
+df.syn = df.syn %>%
+  mutate(base_effect = 0)
+
+## Error terms ####
+df.syn = df.syn %>%
+  mutate(err = rnorm(n = n(), mean = 0, sd = 10) )
+
+## Predictors ####
+
+# Travel time
+df.syn = df.syn %>%
+  mutate(
+      tt_car = rnorm(n=n(), mean = 20, sd = 5)
+    , tt_pt  = rnorm(n=n(), mean = 30, sd = 5)
+    , prp_car= runif(n=n(), min = 0.25, max = 0.75)
+    , prp_pt = 1 - prp_car
+  )
+
+## Outcome ####
+df.syn = df.syn %>%
+  mutate(outcome = base_effect +
+           -7*tt_car*prp_car +
+           -12*tt_pt*prp_pt +
+           err)
+
+# print
+head(df.syn,10)
+```
+
+# Estimation
+
+```{r}
+mdl <- lm(outcome ~ tt_car*prp_car + tt_pt*prp_pt, data = df.syn)
+summary(mdl)
+```
+R reported singularities, indicating collinearity among the predictors. 
+
+We see that prp_pt is not identified.
+
+While the interaction terms appear to have recovered the true coefficients, the standard errors are large. Indeed, the interaction terms have identified the true coefficients, but we can improve the model specification to enhance estimation efficiency.
+
+## Model diagnostics
+
+```{r}
+# Design matrix - predictor variables
+x = model.matrix(mdl)
+
+# Compare the rank of the design matrix with the number of columns
+rank_deficiency <- qr(x)$rank < ncol(x)
+print(rank_deficiency)
+```
+When the rank is less than the number of columns, some columns are linearly dependent.
+
+```{r}
+# check correlation
+cor(df.syn)
+```
+we see that prp_pt and prp_car are linearly dependent.
+
+This is because prp_pt was created as 1 - prp_car.
+
+# Estimation with composite predictors
+```{r}
+# Create composite predictors
+df.est = df.syn %>%
+  mutate(  car_eft_tt = tt_car*prp_car
+         , pt_eft_tt  = tt_pt*prp_pt
+         )
+
+mdl <- lm(outcome ~ car_eft_tt + pt_eft_tt, data = df.est)
+summary(mdl)
+```
+This specification resolves the collinearity issue. 
+
+The estimation recovers the coefficients used for generating the synthetic dataset, with high precision.
