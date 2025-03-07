@@ -14,3 +14,7 @@ library(devtools)
 install.packages("devtools")
 
 devtools::install_github("jeffzifanwu/dataHelper")
+
+# Setting up copilot
+install.packages("chattr", repos = c("https://mlverse.r-universe.dev", "https://cloud.r-project.org"))
+chattr::chattr_app()
