@@ -13,6 +13,7 @@ Source reusable functions and class definitions directly from this repository in
 source("https://raw.githubusercontent.com/jeffzifanwu/rProject/main/function/my_function.R")
 source("https://raw.githubusercontent.com/jeffzifanwu/rProject/main/class/my_class.R")
 source("https://raw.githubusercontent.com/jeffzifanwu/rProject/main/procedures/beginScript.R")
+source("https://raw.githubusercontent.com/jeffzifanwu/rProject/main/procedures/endScript.R")
 ```
 
 ## Use case 3
