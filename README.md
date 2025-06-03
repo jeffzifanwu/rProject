@@ -25,7 +25,7 @@ source("https://raw.githubusercontent.com/jeffzifanwu/rProject/main/procedures/e
 source("https://raw.githubusercontent.com/jeffzifanwu/rProject/main/procedures/setGgplot.R")
 ```
 
-Note that I am migrating the functions and classes to my R package [**dataHelper**](https://github.com/jeffzifanwu/dataHelper)
+Note: functions and classes are being migrated to the [**dataHelper**](https://github.com/jeffzifanwu/dataHelper) **R package.** New functions and classes will only be updated there.
 
 ## Use case 3
 

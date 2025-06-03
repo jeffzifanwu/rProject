@@ -1,0 +1,378 @@
+---
+title: "Binary outcomes"
+format: html
+editor: visual
+number-sections: true
+number-depth: 3
+---
+
+```{r}
+#| echo: false
+#| output: false
+
+# load library
+library(dplyr)
+library(evd) # for simulating EV1 random numbers
+```
+
+# Introduction
+
+Binary outcomes are common in quantitative research across disciplines. To model them, researchers often turn to two main modelling frameworks: Discrete Choice Models (DCMs) and Generalised Linear Models (GLM).
+
+Econometricians and social scientists typically use the DCM framework to estimate structural parameters grounded in economic or behavioural theory. In contrast, statisticians and data scientists often apply GLMs or their nonlinear extensions GAMs, to uncover relationships between variables and make predictions.
+
+Although these approaches have different theoretical foundations, they often yield numerically equivalent results. This post walks through thetheoretical basis of each framework and presents numerical examples to higlight their similarities. The contents are organised as follows:
+
+-   @sec-logit: Logit (DCM) and logistic regression (GLM)
+
+Each section typically:
+
+1.  simulates a dataset with the DCM framework,
+
+2.  estimate the structural paramaters using maximum likelihood, the standard estimation method in DCM,
+
+3.  applies a regression model under the GLM framework to the data and shows that it recovers the same parameters.
+
+```{r}
+#| echo: false
+#| output: false
+
+# Housekeeping
+source("https://raw.githubusercontent.com/jeffzifanwu/rProject/main/procedures/beginScript.R")
+```
+
+# Logit and logistic regression {#sec-logit}
+
+## Simulation: DCM framework {#sec-simLogit}
+
+Let there be two alternatives $\mathcal{D} = \{0,1\}$, available to each individual. We use the subscript $i \in \{0,1\}$ to index alternative; and superscript $k \in \{1, \ldots,K \}$ to index predictors and coefficients.
+
+**Deterministic indirect utility**
+
+$$
+\begin{align}
+V_0 & = \sum_{k=2}^{K}  \alpha^k x_0^{k}
+\\
+V_1 & = \alpha^1_{1} + \sum_{k=2}^{K} \alpha^2 x_1^{k}
+\end{align}
+$$ Note that the first equation does not have an intercept due to normalisation.
+
+**Total indirect utility**
+
+$$
+\begin{align}
+V_0^{'} & = V_0 + \epsilon_0
+\\
+V_1^{'} & = V_1 + \epsilon_1
+\end{align}
+$$
+
+**Deterministic and total utility differences**
+
+$$
+\begin{align}
+\bar{V}
+& = \bar{V}_1 - \bar{V}_0
+\\
+\bar{V}^{'}
+& = V_1^{'} - V_0^{'}
+\\
+& = \bar{V} - \upsilon
+\end{align}
+$$
+
+where $\upsilon = \epsilon_0 - \epsilon_1$.
+
+**Choice rules**
+
+$$
+y = \begin{cases} 1 & \text{if } \bar{V}^{'} > 0 \\0 & \text{otherwise} \end{cases}
+$$
+
+Assume $\epsilon_1$, $\epsilon_2$ are i.i.d EV1. Let $K = 3$, that is, one intercept and two predictors. We simulate a dataset based on these specifications.
+
+```{r}
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Specifications
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+# n individuals
+n <- 1000
+
+# The true coefficients: alpha1 (for V2 only), alpha2, alpha3
+alpha <- c(0.25, 0.75, -0.25)
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Simulate data
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+# ids
+df.sim = tibble(id = 1:n)
+
+# observed covariates
+df.sim = df.sim %>%
+  mutate(
+    # predictor k=1 (intercepts)
+    x1_0 = 1,  # alternative 0
+    x1_1 = 1,  # alternative 1
+    # predictor k=2
+    x2_0 = rnorm(n, mean = 10, sd = 1), # alternative 0
+    x2_1 = rnorm(n, mean = 10, sd = 1),  # alternative 1
+    # predictor k=3
+    x3_0 = rnorm(n, mean = 20, sd = 1), # alternative 0
+    x3_1 = rnorm(n, mean = 20, sd = 1)  # alternative 1
+  )
+
+# deterministic utilities
+df.sim = df.sim %>%
+  mutate(
+    intercept0 = x1_0*0,        # intercept for alternative 0
+    intercept1 = x1_1*alpha[1], # intercept for alternative 1
+    V0 = intercept0 + x2_0*alpha[2] + x3_0*alpha[3],
+    V1 = intercept1 + x2_1*alpha[2] + x3_1*alpha[3]
+  )
+
+# unobserved utilities (error terms)
+df.sim = df.sim %>%
+  mutate(
+    eps0 = rgumbel(n, loc = 0, scale = 1),
+    eps1 = rgumbel(n, loc = 0, scale = 1)
+  )
+
+# total utilities
+df.sim = df.sim %>%
+  mutate(
+    V0_total = V0 + eps0,
+    V1_total = V1 + eps1
+  )
+
+# choices
+df.sim= df.sim %>%
+  mutate(y = case_when(
+      V1_total > V0_total ~ 1
+    , .default = 0
+  ))
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Descriptive statistics
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+summary(as.factor(df.sim$y))
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Likelihood
+# _ These are used for debug checks later
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+# Probability of choices
+df.sim = df.sim %>%
+  mutate(
+    pr0 = exp(V0) / (exp(V0) + exp(V1)),
+    pr1 = exp(V1) / (exp(V0) + exp(V1))
+  )
+
+# Log-likelihood
+df.sim = df.sim %>%
+  mutate(
+    ll = y*log(pr1) + (1-y)*log(1-pr1)
+  )
+
+# calculate total negative log likelihood
+nll.true = -sum(df.sim$ll)
+print(paste0("True total negative log-likelihood: ", nll.true))
+
+```
+
+## Estimation: DCM framework {#sec-logitMle}
+
+We define:
+
+$$
+\begin{align}
+  \beta^1
+  & = \alpha^1_1
+  \\
+  \beta^2
+  &   = \alpha^2
+  \\
+  \beta^3
+  &   = \alpha^3
+\end{align}
+$$
+
+The observed utility difference becomes:
+
+$$
+\begin{align}
+\bar{V} 
+& = \alpha^{1}_1 +  \sum_{k=2}^{K} \beta^{k} (x_1^{k} - x_0^{k})
+\end{align} 
+$$
+
+The probability of choosing alternative 1 is given by:
+
+$$
+\begin{align}
+  p_{1}
+  = Pr(y=1) 
+  = Pr(\bar{V}^{'} > 0)
+  = Pr(\upsilon < \bar{V})
+\end{align}
+$$
+
+If $\epsilon_0$, $\epsilon_1$ are i.i.d EV1, $\upsilon$ follows a logistic distribution. Its CDF gives the logit probability:
+
+$$
+Pr(y=1) 
+=   \frac{\exp (\bar{V})}{1 + \exp (\bar{V})} 
+$$ {#eq-logitProb}
+
+**Likelihood** $$
+\begin{align}
+  l_n 
+  &   = p_n^{y_n}(1-p_n)^{1 - y_n}
+\end{align}
+$$
+
+**Log-likelihood**
+
+$$
+ll_n = y_n \ln p_n + (1 - y_n) \ln (1-p_n)
+$$ **Total log-likelihood**
+
+$$
+LL 
+= \sum_{n=1}^N \left[ y_n \log(p_n) + (1 - y_n) \log(1 - p_n) \right]
+$$
+
+We estimate the coefficients.
+
+```{r}
+
+# Get predictors
+mat.x = as.matrix(
+  df.sim %>% 
+    mutate(x1 = 1) %>%
+    mutate(x2 = x2_1 - x2_0) %>%
+    mutate(x3 = x3_1 - x3_0) %>%
+    select(x1, x2, x3)
+  )
+
+# Get outcomes
+mat.y = as.matrix(
+  df.sim %>% 
+    select(y)
+  )
+
+# Define log-likelihood function
+nll <- function(beta, x, y) {
+  
+  # test variables
+  # x    = mat.x
+  # y    = mat.y
+  # beta = mat.beta 
+  
+  # observable utility difference
+  mat.v = x %*% beta
+  
+  # probability of alternative 1
+  mat.p1= exp(mat.v) / (1 + exp(mat.v))
+  
+  # log-likelihood
+  mat.ll  = y*log(mat.p1) + (1-y)*log(1-mat.p1)
+  
+  # total negative log-likelihood
+  nll = -sum(mat.ll)
+  
+  return(nll)
+}
+
+# Some debug checks
+beta.true = c(0.25, 0.75, -0.25) # we know these are the true coefficients
+mat.beta = as.matrix(beta.true)
+nll.curr = nll(mat.beta, mat.x, mat.y) # current total negative log-likelihood
+if (!isTRUE(all.equal(nll.curr, nll.true))) {
+  stop("Mismatched total negative log-likelihoods.")
+} else {
+  cat("total negative log-likelihood:", nll.curr)
+}
+
+# start values
+startValues = rep(0,ncol(mat.x))
+
+# Optimise
+opt = optim(
+  par = startValues,
+  fn  = nll,
+  x   = mat.x,
+  y   = mat.y,
+  method = "BFGS",
+  hessian = TRUE
+  )
+
+# point estimates of coefficients
+mat.pe = opt$par
+
+# var-cov matrix
+mat.varCov = solve(opt$hessian)
+
+# standard errors
+mat.se = sqrt(diag(mat.varCov))
+
+# z-scores
+mat.zScore = mat.pe / mat.se
+
+# p-values
+mat.pValue = 2 * (1 - pnorm(abs(mat.zScore)))
+
+# Display results
+estimates_df = data.frame(
+  point_estimate = mat.pe,   
+  standard_error = mat.se,   
+  z_score        = mat.zScore,
+  p_value        = mat.pValue
+)
+print(estimates_df)
+
+```
+
+## Estimation: GLM framework {#sec-logisticReg}
+
+Under the GLM framework, we conceptualise the choice $Y$ as an binary random variable following a binomial distribution with $E[Y] = p_1$. The deterministic utility difference $\bar{V}$ is a linear predicting function. They are linked through the logit link function:
+
+$$
+\ln \frac{p_1}{1+p_1} = \bar{V}
+$$
+
+Solving for $p_1$, we obtain:
+
+$$
+p_1 
+= \frac{\bar{V}}{1+\bar{V}}
+$$
+
+which is the logit probability derived in (@eq-logitProb). This demonstrates the numerical equivalence of the DCM and GLM frameworks, even though they are based on different conceptulisations.
+
+We use the glm function implemented in base R to estimate the coefficients.
+
+```{r}
+# data
+df.est = as.data.frame(cbind(mat.x, mat.y))
+
+# estimate
+mdl = glm(y ~ x2 + x3, data = df.est, family = binomial(link = "logit"))
+
+# results
+summary(mdl)
+```
+
+It recovers the same estimates obtained in @sec_logitMle.
+
+```{r}
+#| echo: false
+#| output: false
+
+# Housekeeping
+source("https://raw.githubusercontent.com/jeffzifanwu/rProject/main/procedures/endScript.R")
+```
