@@ -214,7 +214,7 @@ The probability of choosing alternative 1 is given by:
 
 $$
 \begin{align}
-  p_{1}
+  p
   = Pr(y=1) 
   = Pr(\bar{V}^{'} > 0)
   = Pr(\upsilon < \bar{V})
@@ -228,22 +228,28 @@ Pr(y=1)
 =   \frac{\exp (\bar{V})}{1 + \exp (\bar{V})} 
 $$ {#eq-logitProb}
 
-**Likelihood** $$
+**Likelihood** 
+
+$$
 \begin{align}
   l_n 
   &   = p_n^{y_n}(1-p_n)^{1 - y_n}
 \end{align}
 $$
 
+where $n$ indexes individuals.
+
 **Log-likelihood**
 
 $$
 ll_n = y_n \ln p_n + (1 - y_n) \ln (1-p_n)
-$$ **Total log-likelihood**
+$$ 
+
+**Total negative log-likelihood**
 
 $$
-LL 
-= \sum_{n=1}^N \left[ y_n \log(p_n) + (1 - y_n) \log(1 - p_n) \right]
+NLL 
+= - \sum_{n=1}^N ll_n
 $$
 
 We estimate the coefficients.
@@ -273,7 +279,7 @@ nll <- function(beta, x, y) {
   # y    = mat.y
   # beta = mat.beta 
   
-  # observable utility difference
+  # deterministic utility difference
   mat.v = x %*% beta
   
   # probability of alternative 1
@@ -327,19 +333,125 @@ mat.zScore = mat.pe / mat.se
 mat.pValue = 2 * (1 - pnorm(abs(mat.zScore)))
 
 # Display results
-estimates_df = data.frame(
+df.results = data.frame(
   point_estimate = mat.pe,   
   standard_error = mat.se,   
   z_score        = mat.zScore,
   p_value        = mat.pValue
 )
-print(estimates_df)
+print(df.results)
 
 ```
 
 ## Estimation: Maximum simulated likelihood
 
-Assuming that
+Assuming that we do not have the logit probability function @eq-logitProb, we would have to simulate the probability of choosing alternative 1. We can use the following steps:
+
+In the previous section, we estimated the coefficients using maximum likelihood estimation (MLE). However, in practice, we may not have access to a closed-form function for the probability of choosing alternative 1 (e.g., the logit probability @eq-logitProb). In such cases, we simulate the probability of choosing alternative 1 conditional on some paramaters and predictors. The simulated probability is given by:
+
+$$
+\begin{align}
+  \tilde{p}_{n} 
+  = \frac{1}{R} \sum_{r=1}^{R} \tilde{y}_{n,r}
+\end{align}
+$$
+where $\tilde{y}_{n,r}$ is the simulated choice outcome of individual $n$ in simulation $r$; $R$ is the number of simulations for each individual. Note that in previous sections we suppressed the subscript $n$ for simplicity, but now we have to include it to avoid confusion. The simulated log-likelihood is given by:
+
+$$
+\begin{align}
+  \tilde{ll}_n 
+  =  y_n \log(\tilde{p}_{n}) + (1 - y_n) \log(1 - \tilde{p}_{n})
+\end{align}
+$$
+**Total negative log-likelihood**
+
+$$
+\begin{align}
+NLL 
+& = - \sum_{n=1}^N \tilde{ll}_n
+\end{align}
+$$
+We estimate the coefficients using maximum simulated likelihood.
+
+```{r}
+# Number of simulations
+R = 1000
+
+# Define simulated log-likelihood function
+nlls <- function(beta, x, y, R) {
+  
+  # deterministic utility difference
+  mat.v = x %*% beta
+  
+  # mpty matrix to store simulated choices
+  mat.ysim = matrix(0, nrow = nrow(x), ncol = R)
+  
+  # simulate choices
+  for (r in 1:R) {
+    # simulate error terms for all individuals in the r-th simulation
+    mat.eps = rgumbel(nrow(x), loc = 0, scale = 1)
+    
+    # calculate total utility
+    mat.vTotal = mat.v + mat.eps
+    
+    # choice outcome for each individual
+    tmp.y = ifelse(mat.vTotal > 0, 1, 0)
+    
+    # insert choice outcomes from the r-th simulation into the main matrix
+    mat.ysim[, r] = tmp.y
+  }
+  
+  # simulated probability of alternative 1
+  p = rowMeans(mat.ysim)
+  
+  # simulated log-likelihood
+  sll = y * log(p) + (1 - y) * log(1 - p)
+  
+  # total negative log-likelihood
+  nll_sim = -sum(ll_sim)
+  
+  return(nll_sim)
+}
+
+# Start values
+startValues = rep(0, ncol(mat.x))
+
+# Optimise
+opt_sim = optim(
+  par = startValues,
+  fn  = nlls,
+  x   = mat.x,
+  y   = mat.y,
+  R   = R,
+  method = "BFGS",
+  hessian = TRUE
+)
+
+# point estimates of coefficients
+mat.pe = opt_sim$par
+
+# var-cov matrix
+mat.varCov = solve(opt_sim$hessian)
+
+# standard errors
+mat.se = sqrt(diag(mat.varCov))
+
+# z-scores
+mat.zScore = mat.pe / mat.se
+
+# p-values
+mat.pValue = 2 * (1 - pnorm(abs(mat.zScore)))
+
+# Display results
+df.results = data.frame(
+  point_estimate = mat.pe,   
+  standard_error = mat.se,   
+  z_score        = mat.zScore,
+  p_value        = mat.pValue
+)
+print(df.results)
+
+```
 
 ## Estimation: GLM framework {#sec-logisticReg}
 
