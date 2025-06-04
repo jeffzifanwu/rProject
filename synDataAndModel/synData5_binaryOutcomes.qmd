@@ -184,7 +184,7 @@ print(paste0("True total negative log-likelihood: ", nll.true))
 
 ```
 
-## Estimation: DCM framework {#sec-logitMle}
+## Estimation: Maximum likelihood {#sec-logitMle}
 
 We define:
 
@@ -336,6 +336,10 @@ estimates_df = data.frame(
 print(estimates_df)
 
 ```
+
+## Estimation: Maximum simulated likelihood
+
+Assuming that
 
 ## Estimation: GLM framework {#sec-logisticReg}
 
