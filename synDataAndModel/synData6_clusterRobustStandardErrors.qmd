@@ -1,0 +1,403 @@
+---
+title: "Cluster-robust standard error"
+format: html
+editor: visual
+number-sections: true
+number-depth: 3
+---
+
+# Introduction
+
+In a recent project (LTN25), I worked with a dataset comprising daily traffic counts at various sites across a borough, collected in two waves. The first wave was gathered in November 2021, and the second in November 2023. Each wave includes seven consecutive days of traffic counts for all sites. Between the two waves, the borough implemented three Low Traffic Neighbourhood (LTN) schemes, which affected traffic volumes at some of these sites. We employed a difference-in-differences (DiD) approach to analyse the policy's impact and fitted a two-way fixed effects (TWFE) model to the traffic data to estimate the treatment effect on the treated (referred to as the treatment effect hereafter for simplicity).
+
+This dataset violates key assumptions of the TWFE model, particularly the requirement for independent and identically distributed (i.i.d.) error terms. Correlation arises because traffic counts at the same sites are repeatedly measured over consecutive days. For example, if engineering works occurred near a site during one measurement wave, all traffic counts at that site during the same wave could be suppressed. Since the model does not include a fixed effect for the occurrence of engineering works, the relevant effects manifest as correlated residuals (error terms).
+
+This post examines how such repeated measurements impact TWFE estimation and explores cluster-robust standard errors as a solution to address these issues.
+
+```{r}
+#| echo: false
+#| output: false
+
+# Housekeeping
+source("https://raw.githubusercontent.com/jeffzifanwu/rProject/main/procedures/beginScript.R")
+
+# load library
+library(dplyr)
+library(dataHelper)
+```
+
+# TWFE
+
+## Data generating process
+
+The general TWFE model is given by:
+
+$$
+y_{i,t} 
+= \alpha^{base} 
++ \alpha^{site}_{i}
++ \alpha^{time}_{t}
++ D_{i,t} \beta
++ \epsilon_{i,t}
+$$
+
+where:
+
+-   $y_{i,t}$ is the outcome variable for individual $i$ at time $t$;
+-   $\alpha^{base}$ is the base effect;
+-   $\alpha^{site}_{i}$ is the site fixed effect;
+-   $\alpha^{time}_{t}$ is the time fixed effect;
+-   $D_{i,t}$ is the treatment indicator (1 if site $i$ is treated at time $t$, 0 otherwise);
+-   $\beta$ is the treatment effect;
+-   $\epsilon_{i,t}$ is the error term, assumed to be i.i.d.normal.
+
+We now specify a data generating process for a panel data composed of 30 sites and 28 time periods. The sites are indexed by $i = 1, \ldots, 30$ and the time periods by $t = 1, \ldots, 28$. The outcome variable $y_{i,t}$ denotes the traffic volume at site $i$ at time $t$. The frist 20 sites are assigned to treatment group and the rest to the control group. The treatment is applied at time $t = 15$ for the treated sites, and the control sites are never treated. So, the treatment indicator $D_{i,t}$ is defined as follows:
+
+$$
+D_{i,t} = 
+\begin{cases} 
+1 & \text{if } i \leq 20 \text{ and } t \geq 15, \\
+0 & \text{otherwise}.
+\end{cases}
+$$
+
+The parameters are specified as follows:
+
+-   $\alpha^{base} = 100$;
+-   $\alpha^{site}_{i} = i$ for $i = 1, \ldots, 30$ (i.e., the site fixed effects are simply the site indices);
+-   $\alpha^{time}_{t} = -20$ when $t$ is a multiple of seven (i.e., $t = 7, 14, 21, 28$) and $0$ otherwise;
+-   $\beta = 50$
+
+Error term:
+
+$$
+\epsilon_{i,t} \overset{\text{i.i.d.}}{\sim} \mathcal{N}(0, 10)
+$$
+
+### Simulation
+
+```{r}
+# Number of sites (clusters) and periods 
+nSite   = 30
+nPeriod = 28
+
+# Generate Ids
+df.tc = genDimIds(
+    dimSize = c(nSite, nPeriod)
+  , dimName = c("site_id", "period_id")
+)
+
+# Generate individual error terms
+df.tc$indivdu_err = rnorm(nrow(df.tc), mean = 0, sd = 10)
+
+# Generate site fixed effects
+df.siteEffect = data.frame(site_id = 1:nSite) %>%
+  # site fiexed effect equal to its site id
+  mutate(site_fixed_effect = site_id)
+
+df.tc = df.tc %>%
+  left_join(df.siteEffect, by = "site_id")
+
+# Generate period fixed effects
+df.tc = df.tc %>%
+  group_by(period_id) %>%
+  # Period id is a Multiple of 7: -20, otherwise 0
+  mutate(period_fixed_effect = ifelse(period_id %% 7 == 0, -20, 0)) %>%
+  ungroup()
+
+# Generate base traffic
+df.tc$base = 100
+
+# - - - - - - - - - - - - - - - - 
+# Generate treatmnent effects
+# - - - - - - - - - - - - - - - -
+
+# Label treatment group  
+df.tc = df.tc %>%
+  # 2/3 are in treatment group, 1/3 in control group
+  mutate(treatment_group = if_else(site_id <= 2/3*nSite, TRUE, FALSE))
+
+# Generate post policy indicator
+df.tc = df.tc %>%
+  # policy implemented after the 14th period
+  mutate(post_policy = if_else(period_id > 14, TRUE, FALSE))
+
+# Label treated units: in treatment group and post policy
+df.tc = df.tc %>%
+  mutate(is_treated = if_else(treatment_group & post_policy, 1, 0))
+
+# Generate treatment effects
+df.tc = df.tc %>%
+  mutate(treatment_effect = is_treated*(-50))
+
+# - - - - - - - - - - - - - - - -
+
+# Generate outcome
+df.tc = df.tc %>%
+  mutate(y = base +
+           site_fixed_effect +
+           period_fixed_effect +
+           treatment_effect +
+           indivdu_err 
+           )
+
+print(df.tc)
+```
+
+### Estimation {#sec-estTwfe}
+
+OLS estimation is used to recover the parameters.
+
+```{r}
+# estimation
+mdl = lm(y ~ 
+           as.factor(is_treated) + 
+           as.factor(site_id) + 
+           as.factor(period_id)
+         , data = df.tc)
+
+# results
+summary(mdl)
+```
+
+OLS recovers the true parameters with reasonably high precision.
+
+We call four diagnostic plots for the estimated model. The aim is not to check whether the model satisfies the OLS assumptions—we already know it does, as the data was simulated to meet these conditions. Instead, we use these plots to illustrate how diagnostic plots appear when the model is correctly specified.
+
+```{r}
+plot(mdl)
+```
+
+# TWFE with correlated errors {#sec-twfeCorrelated}
+
+## Data generating process
+
+The general TWFE model is given by:
+
+$$
+y_{i,t} 
+= \alpha^{base} 
++ \alpha^{site}_{i}
++ \alpha^{time}_{t}
++ D_{i,t} \beta
++ \epsilon^{cluster}_{c}
++ \epsilon^{individ}_{i,t}
+$$
+
+where: 
+- $\epsilon^{cluster}_{c}$ is the cluster-level error term, assumed to be i.i.d. normal across clusters; 
+- $\epsilon^{individ}_{i,t}$ is the individual-level error term, assumed to be i.i.d. normal across sites and time.
+
+We now specify 60 clusters for this dataset. The sample points of each site are assigned to two clusters depending on whether are collected before or after the treatment. The clusters are indexed by $c = 1, \ldots, 60$. 
+
+The error terms are specified as follows:
+
+$$
+\begin{align}
+& \epsilon^{cluster}_{c} \overset{\text{i.i.d.}}{\sim} \mathcal{N}(0, 10)
+\\
+& \epsilon^{individ}_{i,t} \overset{\text{i.i.d.}}{\sim} \mathcal{N}(0, 10)
+\end{align}
+$$
+
+### Simulation
+
+We simulate the data based on the above specifications.
+
+```{r}
+# Generate cluster Ids
+df.cluster = df.tc %>%
+  distinct(site_id, post_policy) %>%
+  arrange(site_id, post_policy) %>%
+  mutate(cluster_id = row_number()) %>%
+  mutate(cluster_err= rnorm(nrow(.), mean = 0, sd = 10))
+
+df.tc = df.tc %>%
+  left_join(df.cluster, by = c("site_id", "post_policy"))
+
+# Generate outcome 
+df.tc = df.tc %>%
+  mutate(y = base +
+           site_fixed_effect +
+           period_fixed_effect +
+           treatment_effect +
+           cluster_err +
+           indivdu_err 
+           )
+
+print(df.tc %>% select(site_id, period_id, cluster_id, cluster_err, y))
+```
+
+### Estimation: conventional OLS standard error
+
+```{r}
+# estimation
+mdl = lm(y ~ 
+           as.factor(is_treated) + 
+           as.factor(site_id) + 
+           as.factor(period_id)
+         , data = df.tc)
+
+# results
+summary(mdl)
+```
+
+The estimation results immediately show:
+
+1.  The treatment effect is recovered. However, the standard error increases compared to the previous dataset (see @sec-estTwfe).
+2.  The estimates of site and time fixed effects are not all reliable.
+3.  The overall model fit ($R^2$) declines relative to the previous dataset.
+
+In the following section, we analyse the residuals of the estimated model to illustrate violations of the OLS assumptions.
+
+### Diagnosis
+
+```{r}
+plot(mdl)
+```
+
+These plots appear to acceptable, because the cluster-level errors are relatively small. We repeat the simulation, estimation, and diagnostic procedures for two additional datasets in which the standard deviations of the cluster-level error terms are increased to 30 and 50, respectively.
+
+```{r}
+# Generate cluster Ids
+df.cluster = df.tc %>%
+  distinct(site_id, post_policy) %>%
+  arrange(site_id, post_policy) %>%
+  mutate(cluster_id = row_number()) %>%
+  mutate(cluster_err2= rnorm(nrow(.), mean = 0, sd = 30)) %>%
+  mutate(cluster_err3= rnorm(nrow(.), mean = 0, sd = 50))
+
+df.tc = df.tc %>%
+  left_join(df.cluster, by = c("site_id", "post_policy", "cluster_id"))
+
+# Generate outcome 
+df.tc = df.tc %>%
+  mutate(y2 = base +
+           site_fixed_effect +
+           period_fixed_effect +
+           treatment_effect +
+           cluster_err2 +
+           indivdu_err 
+           ) %>%
+  mutate(y3 = base +
+           site_fixed_effect +
+           period_fixed_effect +
+           treatment_effect +
+           cluster_err3 +
+           indivdu_err 
+           )
+
+print(df.tc %>% select(site_id, period_id, cluster_id
+  , cluster_err , y
+  , cluster_err2, y2
+  , cluster_err3, y3
+  ))
+
+# estimate dataset 2
+mdl2 = lm(y2 ~ 
+           as.factor(is_treated) + 
+           as.factor(site_id) + 
+           as.factor(period_id)
+         , data = df.tc)
+
+# results
+summary(mdl2)
+
+# diagnosis
+plot(mdl2)
+
+# estimate dataset 3
+mdl3 = lm(y3 ~ 
+           as.factor(is_treated) + 
+           as.factor(site_id) + 
+           as.factor(period_id)
+         , data = df.tc)
+
+# results
+summary(mdl3)
+
+# diagnosis
+plot(mdl3)
+```
+
+The residual vs. fitted values plots show increasingly clear patterns of clustering as the standard deviation increases. In particular, when the standard deviation of the cluster-level error term is 50, the residuals are visibly clustered. The QQ plots further indicate that the residuals deviate from normality.
+
+To facilitate visual comparison, these plots are organised in a grid layout:
+
+```{r}
+par(mfrow = c(3, 2), mar = c(2, 2, 2, 2))
+
+plot(mdl, which = 1,
+     cex = 0.75,        # Point size
+     cex.lab = 0.75,    # Axis labels
+     cex.axis = 0.75,   # Tick labels
+     cex.main = 0.5    # Title size
+)
+plot(mdl, which = 2)  # QQ Plot
+
+plot(mdl2, which = 1)
+plot(mdl2, which = 2)
+
+plot(mdl3, which = 1)
+plot(mdl3, which = 2)
+```
+
+We now focus on the treatment effect estimates. The table below summarises the estimated coefficients and their corresponding standard errors for each dataset.
+
+```{r}
+df.result <- data.frame(
+  cluster_err_sd     = c(10, 30, 50),
+  beta  = c(coef(mdl)[2],  coef(mdl2)[2],  coef(mdl3)[2]),
+  std_err = c(
+    sqrt(diag(vcov(mdl)))[2],
+    sqrt(diag(vcov(mdl2)))[2],
+    sqrt(diag(vcov(mdl3)))[2]
+  )) %>%
+  mutate(
+    ci_lb = beta - 1.96 * std_err,
+    ci_ub = beta + 1.96 * std_err
+  )
+
+
+print(df.result)
+```
+
+The results show that only when the standard deviation of the cluster-level error term is 10, the conventional OLS estimation successfully recovers the treatment effect—that is, the true value of $\beta$ lies within the 95% confidence interval. As the cluster-level error variance increases, standard errors are underestimated, and inference becomes unreliable.
+### Estimation: cluster robust standard error
+
+We reuse the previously estimated models and compute cluster-robust standard errors, which are robust to correlation of error terms within clusters. The `clubSandwich` package in R is used to compute these standard errors.
+
+```{r}
+library(clubSandwich)
+
+# Compute cluster robust variance-covariance matrix
+crVarCov  = vcovCR(mdl,  cluster = df.tc$cluster_id, type = "CR2")
+crVarCov2 = vcovCR(mdl2, cluster = df.tc$cluster_id, type = "CR2")
+crVarCov3 = vcovCR(mdl3, cluster = df.tc$cluster_id, type = "CR2")
+
+# Compute standard error for all coefficients
+est = coef_test(mdl, vcov = crVarCov)
+est2= coef_test(mdl2, vcov = crVarCov2)
+est3= coef_test(mdl3, vcov = crVarCov3)
+
+print(est)
+print(est2)
+print(est3)
+```
+
+We again focus on the treatment effect estimates. For ease of comparison, we extend the previous table to include the cluster-robust standard errors and their associated 95% confidence intervals. Notably, the true treatment effect, $\beta$, lies within the 95% confidence interval for all three datasets.
+
+```{r}
+df.result = df.result %>%
+  mutate(cr_std_err = c(est[2,"SE"], est2[2,"SE"], est3[2,"SE"])) %>%
+  mutate(cr_ci_lb = beta - 1.96*cr_std_err) %>%
+  mutate(cr_ci_ub = beta + 1.96*cr_std_err)
+
+print(df.result)
+```
+
+# Conclusion
+
+This post explores how repeated measurements can jeopardise TWFE estimation. We show that conventional OLS estimation is not reliable when error terms are correlated due to repeated measurements. In our numerical experiments, the model only recovered the true treatment effect when the correlation was minor—that is, when the standard deviation of the cluster-level error term was small.
+
+The findings of this experiment are pedagogically valuable. They reveal the limitations of OLS estimation in the presence of correlated error terms. More importantly, they highlight that panel data with long time series may not contain as much independent information as we might assume. Many data points in these datasets may be repeated measurements and, as such, carry similar information. They contribute little to improving the precision of OLS estimates. In fact, they can inflate standard errors, leading to misleadingly narrow confidence intervals and potentially incorrect conclusions.
