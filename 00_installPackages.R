@@ -13,6 +13,8 @@ install.packages("did")
 library(devtools)
 install.packages("devtools")
 
+remove.packages("dataHelper")
+library(dataHelper)
 devtools::install_github("jeffzifanwu/dataHelper")
 
 # Setting up copilot

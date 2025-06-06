@@ -29,7 +29,7 @@ Each section typically:
 
 1.  simulates a dataset with the DCM framework,
 
-2.  estimate the structural paramaters using maximum likelihood, the standard estimation method in DCM,
+2.  estimate the structural parameters using maximum likelihood and/or maximum simulated likelihood, the standard estimation method in DCM,
 
 3.  applies a regression model under the GLM framework to the data and shows that it recovers the same parameters.
 
@@ -228,7 +228,7 @@ Pr(y=1)
 =   \frac{\exp (\bar{V})}{1 + \exp (\bar{V})} 
 $$ {#eq-logitProb}
 
-**Likelihood** 
+**Likelihood**
 
 $$
 \begin{align}
@@ -243,7 +243,7 @@ where $n$ indexes individuals.
 
 $$
 ll_n = y_n \ln p_n + (1 - y_n) \ln (1-p_n)
-$$ 
+$$
 
 **Total negative log-likelihood**
 
@@ -345,54 +345,50 @@ print(df.results)
 
 ## Estimation: Maximum simulated likelihood
 
-Assuming that we do not have the logit probability function @eq-logitProb, we would have to simulate the probability of choosing alternative 1. We can use the following steps:
-
-In the previous section, we estimated the coefficients using maximum likelihood estimation (MLE). However, in practice, we may not have access to a closed-form function for the probability of choosing alternative 1 (e.g., the logit probability @eq-logitProb). In such cases, we simulate the probability of choosing alternative 1 conditional on some paramaters and predictors. The simulated probability is given by:
+In practice, we may not have access to a closed-form function for the probability of choosing alternative 1 (e.g., the logit probability @eq-logitProb). In such cases, we simulate the probability of choosing alternative 1 given some parameters and predictors. The simulated probability is given by:
 
 $$
 \begin{align}
   \tilde{p}_{n} 
   = \frac{1}{R} \sum_{r=1}^{R} \tilde{y}_{n,r}
 \end{align}
-$$
-where $\tilde{y}_{n,r}$ is the simulated choice outcome of individual $n$ in simulation $r$; $R$ is the number of simulations for each individual. Note that in previous sections we suppressed the subscript $n$ for simplicity, but now we have to include it to avoid confusion. The simulated log-likelihood is given by:
+$$ where $\tilde{y}_{n,r}$ is the simulated choice outcome of individual $n$ in simulation $r$; $R$ is the number of simulations for each individual. Note that in previous sections we suppressed the subscript $n$ for simplicity, but now we have to include it to avoid confusion. The simulated log-likelihood is given by:
 
 $$
 \begin{align}
   \tilde{ll}_n 
   =  y_n \log(\tilde{p}_{n}) + (1 - y_n) \log(1 - \tilde{p}_{n})
 \end{align}
-$$
-**Total negative log-likelihood**
+$$ **Total negative log-likelihood**
 
 $$
 \begin{align}
 NLL 
 & = - \sum_{n=1}^N \tilde{ll}_n
 \end{align}
-$$
-We estimate the coefficients using maximum simulated likelihood.
+$$ We estimate the coefficients using maximum simulated likelihood.
 
 ```{r}
 # Number of simulations
-R = 1000
+R = 10000
 
 # Define simulated log-likelihood function
-nlls <- function(beta, x, y, R) {
+nlls <- function(beta, mat.x, mat.y, R) {
   
   # deterministic utility difference
-  mat.v = x %*% beta
+  mat.v = mat.x %*% beta
   
   # mpty matrix to store simulated choices
-  mat.ysim = matrix(0, nrow = nrow(x), ncol = R)
+  mat.ysim = matrix(NA, nrow = nrow(mat.x), ncol = R)
   
   # simulate choices
   for (r in 1:R) {
+    
     # simulate error terms for all individuals in the r-th simulation
-    mat.eps = rgumbel(nrow(x), loc = 0, scale = 1)
+    mat.upsilon = as.matrix(rlogis(nrow(mat.x), location = 0, scale = 1))
     
     # calculate total utility
-    mat.vTotal = mat.v + mat.eps
+    mat.vTotal = mat.v + mat.upsilon
     
     # choice outcome for each individual
     tmp.y = ifelse(mat.vTotal > 0, 1, 0)
@@ -401,37 +397,72 @@ nlls <- function(beta, x, y, R) {
     mat.ysim[, r] = tmp.y
   }
   
+  # Debug checks
+  if (any(is.na(mat.ysim))) {
+    stop("Error: mat.ysim contains NA values.")
+  }
+  
   # simulated probability of alternative 1
-  p = rowMeans(mat.ysim)
+  mat.psim = as.matrix(rowMeans(mat.ysim))
+  
+  # adjust probabilities to avoid 0 and 1
+  mat.psim[mat.psim == 0] = 1e-4
+  mat.psim[mat.psim == 1] = 1 - 1e-4
   
   # simulated log-likelihood
-  sll = y * log(p) + (1 - y) * log(1 - p)
+  mat.llsim = mat.y * log(mat.psim) + (1 - mat.y) * log(1 - mat.psim)
+  
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  # Debug only
+  # _ get analytical probability and likelihood for the current beta
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  
+  # analytical probability
+  mat.pana = exp(mat.v) / (1 + exp(mat.v)) # This can be unstable as mat.v increases 
+  
+  # analytical log-likelihood
+  mat.llana = mat.y * log(mat.pana) + (1 - mat.y) * log(1 - mat.pana)
+  
+  # print
+  cat("iteration: "
+    , toString(round(beta, 4)), ", "
+    , toString(round(-sum(mat.llsim), 4)), ", " # simulated probability
+    , toString(round(-sum(mat.llana), 4)), "\n" # analytical probability
+    )
+  
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   
   # total negative log-likelihood
-  nll_sim = -sum(ll_sim)
-  
-  return(nll_sim)
+  nll = -sum(mat.llsim)
+  # print(nll)
+
+  return(nll)
 }
+
+# Some debug checks
+beta.true = c(0.25, 0.75, -0.25) # we know these are the true coefficients
+mat.beta = as.matrix(beta.true)
+nll.curr = nlls(mat.beta, mat.x, mat.y, R)
 
 # Start values
 startValues = rep(0, ncol(mat.x))
 
 # Optimise
-opt_sim = optim(
+opt = optim(
   par = startValues,
   fn  = nlls,
-  x   = mat.x,
-  y   = mat.y,
+  mat.x = mat.x,
+  mat.y = mat.y,
   R   = R,
   method = "BFGS",
   hessian = TRUE
 )
 
 # point estimates of coefficients
-mat.pe = opt_sim$par
+mat.pe = opt$par
 
 # var-cov matrix
-mat.varCov = solve(opt_sim$hessian)
+mat.varCov = solve(opt$hessian)
 
 # standard errors
 mat.se = sqrt(diag(mat.varCov))
@@ -452,6 +483,8 @@ df.results = data.frame(
 print(df.results)
 
 ```
+
+Point estimates are usually recoverable; however, standard errors are more difficult to obtain due to a "locally flat" likelihood surface—that is, small changes in parameters do not significantly affect choices. Increasing the number of simulations is the most straightforward solution, as it makes the likelihood function more sensitive to parameter changes. We will explore other techniques in a future post. In the current script, the maximum simulated likelihood estimator does not recover the parameters precisely, even though we have increased the number of simulations to 5,000 per individual!
 
 ## Estimation: GLM framework {#sec-logisticReg}
 
