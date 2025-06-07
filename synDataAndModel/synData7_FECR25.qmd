@@ -1,6 +1,7 @@
 ---
-title: "Testing parallel pre-trends "
+title:  "Dynamic TWFE models with cluster robust standard errors"
 author: "Jeff Wu"
+date:   "2025-06-07"
 format: html
 editor: visual
 number-sections: true
@@ -30,9 +31,9 @@ library(stringr)
 
 # Introduction
 
-The `clubSandwich` package implements a range of robust variance-covariance estimators that are cluster-robust and small-sample corrected, while `fixest` is widely used for estimating regression models with multi-way fixed effects. In a recent project, I estimated a dynamic TWFE model using `feols()` from `fixest` to test for parallel pre-trends. The errors (residuals) in my data were clearly clustered. Although `fixest` has built-in support for cluster-robust errors, these are not small-sample corrected. As the number of clusters in my dataset was not sufficiently large, large language models (LLMs) recommended passing the `fixest`-estimated model to `vcovCR()` from `clubSandwich` to compute cluster-robust standard errors. However, I discovered that `fixest` and `clubSandwich` are not fully compatible.
+The `clubSandwich` package implements a range of robust variance-covariance estimators that are both cluster-robust and small-sample corrected, while `fixest` is widely used for estimating regression models with multi-way fixed effects. In a recent project, I estimated a dynamic TWFE model using `feols()` from `fixest` to test for parallel pre-trends. The errors (residuals) in my data were clearly clustered. Although `fixest` has built-in support for cluster-robust errors, these are not small-sample corrected. As the number of clusters in my dataset was not sufficiently large, large language models (LLMs) recommended passing the `fixest`-estimated model to `vcovCR()` from `clubSandwich` to compute cluster-robust standard errors. However, I discovered that `fixest` and `clubSandwich` are not fully compatible.
 
-Both `fixest` and `clubSandwich` are widely used tools for a broad range of research designs, such as Difference-in-Differences (DiD) and event studies. Therefore, the incompatibility between these two packages can be a notable limitation. In this post, I explain the source of this incompatibility, provide numerical examples showing that `vcovCR()` from `clubSandwich` does not compute standard errors for `fixest`-style models, and share some practical solutions.
+Both `fixest` and `clubSandwich` are widely used tools for a broad range of research designs, such as difference-in-differences and event studies. Therefore, the incompatibility between these two packages represents a notable limitation. In this post, I explain the source of this incompatibility, provide numerical examples showing that `vcovCR()` from `clubSandwich` does not compute standard errors for `fixest`-style models in general, and share some practical solutions.
 
 # Simulation
 
@@ -182,10 +183,7 @@ coef_test(mdl, vcov = vcovCR(mdl,  cluster = df.tc$cluster_id, type = "CR0"))
 coef_test(mdl, vcov = vcovCR(mdl,  cluster = df.tc$cluster_id, type = "CR2"))
 ```
 
-The point estiamtes are the same, but the standard errors differ. As of this post is created (07 June 2025),  `clubSandwich` does not support `fixest`-style models (see 
-[readme](https://github.com/jepusto/clubSandwich) and 
-[issues](https://github.com/jepusto/clubSandwich/issues/61))
-)
+The point estiamtes are the same, but the standard errors differ. `clubSandwich` currently does not support `fixest`-style models (see [readme](https://github.com/jepusto/clubSandwich) and [issues](https://github.com/jepusto/clubSandwich/issues/61)) )
 
 If we code site_id and period_id as dummy variables rather than fixed effects, `feols()` behaves in the same way as `lm()`.
 
@@ -198,7 +196,7 @@ coef_test(mdl, vcov = vcovCR(mdl,  cluster = df.tc$cluster_id, type = "CR0"))
 coef_test(mdl, vcov = vcovCR(mdl,  cluster = df.tc$cluster_id, type = "CR2"))
 ```
 
-The estiamtion results are the same as `lm()`. This syntax does not harness the superior algorithm in `fixest` that enhances its performance in estimating high-dimensional fixed effects. However, many practical features of `fixest` are still available. Most notably, for dynamic TWFE models, we can use the `i()` function to specify interaction terms between time-to-treatment and treatment group variables. We will demonstrate this in the next section.
+The estiamtion results are the same as `lm()`. This syntax does not harness the advanced algorithm in `fixest` which enhances performance when estimating high-dimensional fixed effects. However, many practical features of `fixest` remain available. Most notably, for dynamic TWFE models, we can use the `i()` function to specify interaction terms between time-to-treatment and in-treatment-group variables. We will demonstrate this in the next section.
 
 # Dynamic TWFE
 
@@ -224,28 +222,22 @@ DT::datatable(
   ))
 ```
 
-Note that the `Time_to_Treatment` variable is `NA` for control units. We set `Time_to_Treatment` to -1 for control units, because we will set `Time_to_Treatment = -1` to be reference period later, i.e., $\theta_{g,-1} = 0$, $\forall g$.
+Note that the `Time_to_Treatment` variable is `NA` for control units. We set it to -1 for control units, as we will later define `Time_to_Treatment = -1` as the reference period, i.e., $\theta_{g,-1} = 0$, $\forall g$. This ensures that `feols()` does not compute any lag and lead effects for the control units.
 
 ```{r}
-# # We set Time_to_Treat to 0 (in fact they can be any numerical values)
-df.tc = df.tc %>%
-  mutate(
-    Time_to_Treatment = if_else(is.na(Time_to_Treatment), 0, Time_to_Treatment)
-  )
-
 # Estimation dataset
 df.est = df.tc %>%
   mutate(
     site_id   = as.factor(site_id),
     period_id = as.factor(period_id),
     cluster_id= as.factor(cluster_id),
-    # treatment_group= as.factor(treatment_group)
-    in_treat_grp = if_else(treatment_group,1,0)
+    treat_grp = if_else(treatment_group,1,0),
+    tt_treat = if_else(is.na(Time_to_Treatment), 0, Time_to_Treatment)
   )
 
 # estimate
 mdl = feols(
-  y ~ i(Time_to_Treatment, in_treat_grp, ref = -1) + site_id + period_id
+  y ~ i(tt_treat, treat_grp, ref = -1) + site_id + period_id
   , data = df.est
   )
 
@@ -257,7 +249,7 @@ coef_test(mdl, vcov = crVarCov)
 
 df.result = coef_test(mdl, vcov = crVarCov) %>%
   # filter interaction terms
-  filter(str_detect(Coef, ":in_treat_grp")) %>%
+  filter(str_detect(Coef, ":treat_grp")) %>%
   # time to treatment, period 0 is first treatment period
   mutate(tt_treatment0 = as.numeric(sub(".*?::(-?\\d+):.*", "\\1", Coef))) %>%
   # time to treatment, period 1 is first treatment period
@@ -272,18 +264,6 @@ esplot(
   )
 ```
 
-
 # Conclusion
 
-This post demonstrates that `clubSandwich` does not support `fixest`-style models in general (as of 7 June 2025 However, we showed that `feols()` from `fixest` behaves in the same way as `lm()` and can be used with `clubSandwich` when `site_id` and `period_id` are coded as dummy variables rather than as fixed effects. Although this syntax does not trigger `fixest`’s high-performance algorithm for estimating high-dimensional fixed effects, we can still take advantage of other features offered by `fixest`. Some of these features, particularly useful for estimating dynamic TWFE models and presenting results, include `i()` and `esplot()`. Their usage is demonstrated in this post.
-
-
-------------------------------------------------------------------------
-
-```{r}
-#| echo: false
-#| output: false
-
-# Clean up
-# source("https://raw.githubusercontent.com/jeffzifanwu/rProject/main/procedures/endScript.R")
-```
+This post demonstrates that `clubSandwich` does not support `fixest`-style models in general (as of 7 June 2025). However, we showed that `feols()` from `fixest` behaves in the same way as `lm()` and can be used with `clubSandwich` when `site_id` and `period_id` are coded as dummy variables rather than as fixed effects. Although this syntax does not trigger `fixest`’s high-performance algorithm for estimating high-dimensional fixed effects, we can still take advantage of other features offered by `fixest`. Some of these features, particularly useful for estimating dynamic TWFE models and presenting results, include `i()` and `esplot()`. Their usage is demonstrated in this post.
