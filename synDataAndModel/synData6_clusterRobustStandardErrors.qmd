@@ -184,11 +184,9 @@ y_{i,t}
 + \epsilon^{individ}_{i,t}
 $$
 
-where: 
-- $\epsilon^{cluster}_{c}$ is the cluster-level error term, assumed to be i.i.d. normal across clusters; 
-- $\epsilon^{individ}_{i,t}$ is the individual-level error term, assumed to be i.i.d. normal across sites and time.
+where: - $\epsilon^{cluster}_{c}$ is the cluster-level error term, assumed to be i.i.d. normal across clusters; - $\epsilon^{individ}_{i,t}$ is the individual-level error term, assumed to be i.i.d. normal across sites and time.
 
-We now specify 60 clusters for this dataset. The sample points of each site are assigned to two clusters depending on whether are collected before or after the treatment. The clusters are indexed by $c = 1, \ldots, 60$. 
+We now specify 60 clusters for this dataset. The sample points of each site are assigned to two clusters depending on whether are collected before or after the treatment. The clusters are indexed by $c = 1, \ldots, 60$.
 
 The error terms are specified as follows:
 
@@ -362,8 +360,7 @@ df.result <- data.frame(
 print(df.result)
 ```
 
-The results show that only when the standard deviation of the cluster-level error term is 10, the conventional OLS estimation successfully recovers the treatment effect—that is, the true value of $\beta$ lies within the 95% confidence interval. As the cluster-level error variance increases, standard errors are underestimated, and inference becomes unreliable.
-### Estimation: cluster robust standard error
+The results show that only when the standard deviation of the cluster-level error term is 10, the conventional OLS estimation successfully recovers the treatment effect—that is, the true value of $\beta$ lies within the 95% confidence interval. As the cluster-level error variance increases, standard errors are underestimated, and inference becomes unreliable. \### Estimation: cluster robust standard error
 
 We reuse the previously estimated models and compute cluster-robust standard errors, which are robust to correlation of error terms within clusters. The `clubSandwich` package in R is used to compute these standard errors.
 

@@ -370,7 +370,7 @@ $$ We estimate the coefficients using maximum simulated likelihood.
 
 ```{r}
 # Number of simulations
-R = 10000
+R = 5000
 
 # Define simulated log-likelihood function
 nlls <- function(beta, mat.x, mat.y, R) {

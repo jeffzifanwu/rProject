@@ -1,0 +1,302 @@
+---
+title: "Testing parallel pre-trends "
+author: "Jeff Wu"
+format: html
+editor: visual
+number-sections: true
+number-depth: 3
+---
+
+```{r}
+#| echo: false
+#| output: false
+
+# Housekeeping
+source("https://raw.githubusercontent.com/jeffzifanwu/rProject/main/procedures/beginScript.R")
+
+# load library
+library(dplyr)
+library(dataHelper)
+library(DT)
+library(panelView) # for visualising panel data
+library(fixest)    # fixed effect estimation
+library(clubSandwich) # cluster robust standard error
+library(fect)      # label cohorts in DiD
+library(tibble)
+library(stringr)
+```
+
+------------------------------------------------------------------------
+
+# Introduction
+
+Some text
+
+Some maths:
+
+$$
+y = \beta x
+$$
+
+# Simulation
+
+We simulate a dataset based on the data generating process specified in [CRSE25](https://jeffzifanwu.github.io/3_portfolio/CRSE25/synData6_clusterRobustStandardErrors.html) (Section 3: TWFE with corelated errors).
+
+```{r}
+# Number of sites (clusters) and periods 
+nSite   = 30
+nPeriod = 28
+
+# Generate Ids
+df.tc = genDimIds(
+    dimSize = c(nSite, nPeriod)
+  , dimName = c("site_id", "period_id")
+)
+
+# Generate individual error terms
+df.tc$indivdu_err = rnorm(nrow(df.tc), mean = 0, sd = 10)
+
+# Generate site fixed effects
+df.siteEffect = data.frame(site_id = 1:nSite) %>%
+  # site fiexed effect equal to its site id
+  mutate(site_fixed_effect = site_id)
+
+df.tc = df.tc %>%
+  left_join(df.siteEffect, by = "site_id")
+
+# Generate period fixed effects
+df.tc = df.tc %>%
+  group_by(period_id) %>%
+  # Period id is a Multiple of 7: -20, otherwise 0
+  mutate(period_fixed_effect = ifelse(period_id %% 7 == 0, -20, 0)) %>%
+  ungroup()
+
+# Generate base traffic
+df.tc$base = 100
+
+# - - - - - - - - - - - - - - - - 
+# Generate treatmnent effects
+# - - - - - - - - - - - - - - - -
+
+# Label treatment group  
+df.tc = df.tc %>%
+  # 2/3 are in treatment group, 1/3 in control group
+  mutate(treatment_group = if_else(site_id <= 2/3*nSite, TRUE, FALSE))
+
+# Generate post policy indicator
+df.tc = df.tc %>%
+  # policy implemented after the 14th period
+  mutate(post_policy = if_else(period_id > 14, TRUE, FALSE))
+
+# Label treated units: in treatment group and post policy
+df.tc = df.tc %>%
+  mutate(is_treated = if_else(treatment_group & post_policy, 1, 0))
+
+# Generate treatment effects
+df.tc = df.tc %>%
+  mutate(treatment_effect = is_treated*(-50))
+
+# - - - - - - - - - - - - - - - -
+
+# Generate cluster Ids
+df.cluster = df.tc %>%
+  distinct(site_id, post_policy) %>%
+  arrange(site_id, post_policy) %>%
+  mutate(cluster_id = row_number()) %>%
+  mutate(cluster_err= rnorm(nrow(.), mean = 0, sd = 10))
+
+df.tc = df.tc %>%
+  left_join(df.cluster, by = c("site_id", "post_policy"))
+
+# Convert data form
+# df.tc = df.tc %>%
+#   mutate(
+#     site_id   = as.factor(site_id),
+#     period_id = as.factor(period_id),
+#     cluster_id= as.factor(cluster_id)
+#   )
+
+# Generate outcome 
+df.tc = df.tc %>%
+  mutate(y = base +
+           site_fixed_effect +
+           period_fixed_effect +
+           treatment_effect +
+           cluster_err +
+           indivdu_err
+           )
+
+```
+
+```{r}
+#| echo: false
+#| output: false
+
+DT::datatable(
+  df.tc,
+  filter     = 'top',
+  extensions = 'Buttons',
+  options = list(
+    pageLength = 14,     # Number of rows per page
+    lengthMenu = c(14, 28),  # Dropdown to change rows per page
+    scrollX = TRUE,      # Horizontal scroll
+    autoWidth = TRUE,    # Automatically adjust column widths
+    buttons = c('csv')   # Enable export buttons
+  ))
+```
+
+## Visualisation
+
+```{r}
+# plot treatment status
+panelview(
+  y ~ is_treated, 
+  data  = df.tc,
+  index = c("site_id", "period_id"),
+  main  = ""
+)
+
+# plot outcomes
+panelview(
+  y ~ is_treated, 
+  data  = df.tc,
+  index = c("site_id", "period_id"),
+  type  = "outcome", 
+  ylab  = "Outcome",
+  main  = ""
+)
+```
+
+# Diagnostics
+
+feols() in fixest and lm() in base R are both available.
+
+The problem with fixest is that feols() is not compatible with clubsandwitch (see : https://github.com/jepusto/clubSandwich and https://github.com/jepusto/clubSandwich/issues/89) so you can't compute the CR1, CR2, CR3, even though it support vcov() meaning, that you can still calculate the CR0-type native cluster robust standard error. This is fine if the number of clusters are large like 100+.
+
+```{r}
+# Convert data type (to make the estimation results clean)
+df.est = df.tc %>%
+  mutate(site_id   = as.factor(site_id)) %>%
+  mutate(period_id = as.factor(period_id)) %>%
+  mutate(cluster_id= as.factor(cluster_id)) %>%
+  mutate(is_treated= as.factor(is_treated))
+
+# Base R
+mdl = lm(y ~ is_treated + site_id + period_id, data = df.est)
+
+# CRSE with the clubsandwich package
+coef_test(mdl, vcov = vcovCR(mdl,  cluster = df.tc$cluster_id, type = "CR0"))
+coef_test(mdl, vcov = vcovCR(mdl,  cluster = df.tc$cluster_id, type = "CR2"))
+
+# using fixest package
+mdl = feols(y ~ is_treated|site_id + period_id, data = df.est)
+
+# CRSE with the clubsandwich package
+coef_test(mdl, vcov = vcovCR(mdl,  cluster = df.tc$cluster_id, type = "CR0"))
+coef_test(mdl, vcov = vcovCR(mdl,  cluster = df.tc$cluster_id, type = "CR2"))
+```
+
+fixest is necessary when the number of fixed effects are very large 1000+ (see https://tilburgsciencehub.com/topics/Analyze/causal-inference/panel-data/fixest/), to speed up the computation. Since performance is not yet an issue in this experiment, I will go with the native base R lm() function. One disadvantage (but tolerable!) is that you have to manually type all the interacton terms.
+
+We still want to use i() in feols(). The following code block is to show that feols() and lm() give the same results. Do not use \|site_id+period_id. This specification is not supported by clubsandwidch.
+
+```{r}
+# using fixest package
+mdl = feols(y ~ is_treated + site_id + period_id, data = df.est)
+
+# CRSE with the clubsandwich package
+coef_test(mdl, vcov = vcovCR(mdl,  cluster = df.tc$cluster_id, type = "CR0"))
+coef_test(mdl, vcov = vcovCR(mdl,  cluster = df.tc$cluster_id, type = "CR2"))
+```
+
+# Dynamic TWFE
+
+First, we want to label each observation with their time to treatment.
+
+```{r}
+df.tc = get.cohort(
+    df.tc
+  , D = "is_treated"
+  , index = c("site_id", "period_id")
+  , start0 = TRUE # Treatment starts at period 0
+  )
+
+DT::datatable(
+  df.tc %>% select(site_id, period_id, FirstTreat, Cohort, Time_to_Treatment),
+  filter     = 'top',
+  extensions = 'Buttons',
+  options = list(
+    pageLength = 14,     # Number of rows per page
+    lengthMenu = c(14, 28),  # Dropdown to change rows per page
+    scrollX = TRUE,      # Horizontal scroll
+    autoWidth = TRUE,    # Automatically adjust column widths
+    buttons = c('csv')   # Enable export buttons
+  ))
+```
+
+Estimate a dynamic TWFE model
+
+```{r}
+# note: control units do not have Time_to_Treat
+print(
+  df.tc %>% 
+    select(site_id, period_id, FirstTreat, Cohort, Time_to_Treatment) %>%
+    filter(Cohort == "Control")
+    )
+
+# # We set Time_to_Treat to 0 (in fact they can be any numerical values)
+df.tc = df.tc %>%
+  mutate(
+    Time_to_Treatment = if_else(is.na(Time_to_Treatment), 0, Time_to_Treatment)
+  )
+
+# Estimation dataset
+df.est = df.tc %>%
+  mutate(
+    site_id   = as.factor(site_id),
+    period_id = as.factor(period_id),
+    cluster_id= as.factor(cluster_id),
+    # treatment_group= as.factor(treatment_group)
+    in_treat_grp = if_else(treatment_group,1,0)
+  )
+
+# estimate
+mdl = feols(
+  y ~ i(Time_to_Treatment, in_treat_grp, ref = -1) + site_id + period_id
+  , data = df.est
+  )
+
+# CRSE
+crVarCov  = vcovCR(mdl,  cluster = df.tc$cluster_id, type = "CR2")
+
+# print results
+coef_test(mdl, vcov = crVarCov)
+
+df.result = coef_test(mdl, vcov = crVarCov) %>%
+  # filter interaction terms
+  filter(str_detect(Coef, ":in_treat_grp")) %>%
+  # time to treatment, period 0 is first treatment period
+  mutate(tt_treatment0 = as.numeric(sub(".*?::(-?\\d+):.*", "\\1", Coef))) %>%
+  # time to treatment, period 1 is first treatment period
+  mutate(tt_treatment1 = tt_treatment0 + 1)
+
+library(ggplot2)
+esplot(
+   df.result
+  ,Period = 'tt_treatment1'
+  ,Estimate = 'beta'
+  ,SE = 'SE'
+  )
+```
+
+# Conclusion
+
+------------------------------------------------------------------------
+
+```{r}
+#| echo: false
+#| output: false
+
+# Clean up
+# source("https://raw.githubusercontent.com/jeffzifanwu/rProject/main/procedures/endScript.R")
+```
