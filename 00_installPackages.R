@@ -1,22 +1,25 @@
-
-library(copula) # check if the library is already installed
+remove.packages("dataHelper")
 install.packages("copula")
-
-library(dataHelper) # check if the library is already installed
-library(dataHelper)
-
-library(did)
 install.packages("lava")
 install.packages("BH")
-install.packages("did")
 
+# Data analysis
+devtools::install_github("jeffzifanwu/dataHelper")
+
+# Difference-in-differences
+install.packages("did")
+devtools::install_github("xuyiqing/fect")
+
+# GitHub
 library(devtools)
 install.packages("devtools")
-
-remove.packages("dataHelper")
-library(dataHelper)
-devtools::install_github("jeffzifanwu/dataHelper")
 
 # Setting up copilot
 install.packages("chattr", repos = c("https://mlverse.r-universe.dev", "https://cloud.r-project.org"))
 chattr::chattr_app()
+
+# Documentation (Quarto)
+if (!require("DT")) install.packages('DT')
+
+# Panel data
+if (!require("panelView")) install.packages('panelView')
