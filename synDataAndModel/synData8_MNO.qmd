@@ -5,6 +5,7 @@ format: html
 editor: visual
 number-sections: true
 number-depth: 3
+bibliography: references.bib
 ---
 
 ```{r}
@@ -54,7 +55,7 @@ V_1 & = \alpha^1_{1} + \sum_{k=2}^{K} \alpha^2 x_1^{k}
 \\
 V_2 & = \alpha^1_{2} + \sum_{k=2}^{K} \alpha^2 x_2^{k}
 \end{align}
-$$ 
+$$
 
 **Total indirect utility**
 
@@ -167,6 +168,7 @@ df.sim = df.sim %>%
   ungroup()
 
 ```
+
 ### Visualising simulated data
 
 ```{r}
@@ -189,11 +191,71 @@ ggplot(df.plot, aes(x = choice)) +
   )
 ```
 
-
 # Estimation
 
+The probability $y_i = 1$, i.e., choosing the first alternative, is given by:
 
+$$
+\begin{align}
+  p_i 
+  &   = Prob(V_{1}^{'} \geq V_{0}^{'}, V_{1}^{'} \geq V_{2}^{'}) \\
+  &   = Prob(\epsilon_{0} \leq \bar{V}_{1,0} + \epsilon_{1}, \epsilon_{2} \leq \bar{V}_{1,2} + \epsilon_{1}) \\
+  &   = \int_{z=-\infty}^{\infty}
+    \left[
+    \int_{y=-\infty}^{\bar{V}_{1,2} + \epsilon_{1}}
+      \int_{x=-\infty}^{ \bar{V}_{1,0} + \epsilon_{1}}
+        f_{\epsilon_0}(x) f_{\epsilon_2}(y) \, d\epsilon_0 \, d\epsilon_2
+    \right]
+    f_{\epsilon_1}(z) \, d\epsilon_1
+\end{align}
+$$
+
+where,
+
+$$
+\begin{align}
+  \bar{V}_{1,0} 
+    & = V_1 - V_0
+    \\
+  \bar{V}_{1,2} 
+    & = V_1 - V_2
+\end{align}
+$$
+
+$f_{\epsilon_i} (\cdot)$ is the probability density function for $\epsilon_i$. The probability $y_2 = 1$, $y_3 = 1$ can be expressed analogously.
+
+Using the assumptions, that, $\epsilon_{i}$, $\forall i = 1,2,3$, are i.i.d EV1, we derive the close-form MNL probability function [@Train2009]:
+
+$$
+p_{i} = \frac
+  {exp(V_{i})}
+  {\sum_{j=0}^{2} exp(V_{j})}
+$$
+
+**Log-likelihood**
+
+$$
+ll_n = \sum_{i} y_{i,n} \ln p_{i,n}
+$$
+
+where $n$ indexes agents.
+
+**Total negative log-likelihood**
+
+$$
+nll = - \sum_{n=1}^{N} ll_n
+$$
+We estimate the coefficients:
+
+```{r}
+
+
+```
+
+
+# Others
 **Utility differences**
+
 $$
 \begin{align}
   \bar{V}_{1} 
@@ -209,6 +271,7 @@ $$
     & = V_2^{'} - V_0^{'} = \bar{V}_{2} - \upsilon_{2}
 \end{align}
 $$
+
 where $\upsilon_{1} = \epsilon_0 - \epsilon_1$ and $\upsilon_{2} = \epsilon_0 - \epsilon_2$.
 
 **MNL probabilities**
