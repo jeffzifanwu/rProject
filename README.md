@@ -22,7 +22,7 @@ source("https://raw.githubusercontent.com/jeffzifanwu/rProject/main/class/my_cla
 # procedures
 source("https://raw.githubusercontent.com/jeffzifanwu/rProject/main/procedures/beginScript.R")
 source("https://raw.githubusercontent.com/jeffzifanwu/rProject/main/procedures/endScript.R")
-source("https://raw.githubusercontent.com/jeffzifanwu/rProject/main/procedures/setGgplot.R")
+source("https://raw.githubusercontent.com/jeffzifanwu/rProject/main/procedures/setGgplotThemes.R")
 ```
 
 Note: functions and classes are being migrated to the [**dataHelper**](https://github.com/jeffzifanwu/dataHelper) R package.New functions and classes will only be updated there.
