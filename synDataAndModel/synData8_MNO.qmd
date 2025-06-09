@@ -1,0 +1,230 @@
+---
+title: "Multinomial outcomes "
+author: "Jeff Wu"
+format: html
+editor: visual
+number-sections: true
+number-depth: 3
+---
+
+```{r}
+#| echo: false
+#| output: false
+
+# Housekeeping
+source("https://raw.githubusercontent.com/jeffzifanwu/rProject/main/procedures/beginScript.R")
+
+# load library
+library(dplyr)
+library(dataHelper)
+library(evd)
+library(ggplot2)
+source("https://raw.githubusercontent.com/jeffzifanwu/rProject/main/procedures/setGgplotThemes.R")
+```
+
+------------------------------------------------------------------------
+
+# Introduction
+
+Some text
+
+Some maths:
+
+$$
+y = \beta x
+$$
+
+Some R codes
+
+```{r}
+1 + 1
+```
+
+# MNL
+
+Let there be three alternatives $\mathcal{D} = \{0,1,2\}$, available to each individual. We use the subscript $i \in \{0,1,2\}$ to index alternative; and superscript $k \in \{1, \ldots,K \}$ to index predictors and coefficients.
+
+**Deterministic indirect utility**
+
+$$
+\begin{align}
+V_0 & = \alpha^1_{0} \sum_{k=2}^{K}  \alpha^k x_0^{k}
+\\
+V_1 & = \alpha^1_{1} + \sum_{k=2}^{K} \alpha^2 x_1^{k}
+\\
+V_2 & = \alpha^1_{2} + \sum_{k=2}^{K} \alpha^2 x_2^{k}
+\end{align}
+$$ 
+
+**Total indirect utility**
+
+$$
+\begin{align}
+V_0^{'} & = V_0 + \epsilon_0
+\\
+V_1^{'} & = V_1 + \epsilon_1
+\\
+V_2^{'} & = V_2 + \epsilon_2
+\end{align}
+$$
+
+where $\epsilon_i$ is i.i.d. extreme value type I (Gumbel).
+
+**Choice rule**
+
+$$
+D = 
+\begin{cases}
+  0 & \text{if } V_0^{'} = \max_{i} V_i^{'} \\
+  1 & \text{if } V_1^{'} = \max_{i} V_i^{'}  \\
+  2 & \text{if } V_2^{'} = \max_{i} V_i^{'} 
+\end{cases}
+$$
+
+## Simulation
+
+```{r}
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Specifications
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+# N individuals
+N <- 1000
+
+# J alternatives
+J <- 3 
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Simulate data
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+# ids
+df.sim = genDimIds(dimSize =  c(N,J), dimName = c(
+  "agent_id",
+  "alter_id"
+  ))
+
+# alter_id starts from 0
+df.sim = df.sim %>%
+  mutate(alter_id = as.integer(alter_id) - 1)
+
+# predictor x1 - intercept
+df.sim <- df.sim %>%
+  mutate(x1 = 1)
+  
+# predictor x2 - agent-specific wage rates
+df.agent = df.sim %>%
+  distinct(agent_id) %>%
+  mutate(x2 = rnorm(N, 50, 10))
+
+df.sim = df.sim %>%
+  left_join(df.agent, by = "agent_id")
+
+# predictor x3 - alternative-specific full-income (10 £)
+df.sim = df.sim %>%
+  mutate(x3 = case_when(
+    alter_id == 0 ~ rnorm(n(), 10, 1),
+    alter_id == 1 ~ rnorm(n(), 9, 1),
+    alter_id == 2 ~ rnorm(n(), 8, 1)
+  ))
+
+# parameters
+df.sim = df.sim %>%
+  # alpha1 alternative-specific intercepts
+  mutate(alpha1 = case_when(
+      alter_id == 0 ~ 0,
+      alter_id == 1 ~ 1,
+      alter_id == 2 ~ 2
+  )) %>%
+  # alpha2
+  mutate(alpha2 = 0.1) %>%
+  # alpha3
+  mutate(alpha3 = 0.5)
+
+# deterministic indirect utility
+df.sim = df.sim %>%
+  mutate(
+    v = alpha1 + alpha2 * x2 + alpha3 * x3
+  )
+
+# unobserved utilities (error terms)
+df.sim = df.sim %>%
+  mutate(
+    eps = rgumbel(N*J, loc = 0, scale = 1)
+  )
+
+# total indirect utility
+df.sim = df.sim %>%
+  mutate(
+    v_total = v + eps
+  )
+
+# choices
+df.sim = df.sim %>%
+  group_by(agent_id) %>%
+  mutate(choice = alter_id[which.max(v_total)]) %>%
+  ungroup()
+
+```
+### Visualising simulated data
+
+```{r}
+
+# plot predictors
+hist(df.sim$x2)
+hist(df.sim$x3)
+
+# plot discrete choices
+df.plot = df.sim %>%
+  distinct(agent_id, choice) %>%
+  mutate(choice = as.factor(choice))
+
+ggplot(df.plot, aes(x = choice)) +
+  geom_bar() +
+  labs(
+    title = "Choices",
+    x = "Choice",
+    y = "Count"
+  )
+```
+
+
+# Estimation
+
+
+**Utility differences**
+$$
+\begin{align}
+  \bar{V}_{1} 
+    & = \bar{V}_1 - \bar{V}_0
+    \\
+  \bar{V}_{2} 
+    & = \bar{V}_2 - \bar{V}_0
+    \\
+  \bar{V}^{'}_{1}
+    & = V_1^{'} - V_0^{'} = \bar{V}_{1} - \upsilon_{1}
+    \\
+  \bar{V}^{'}_{2}
+    & = V_2^{'} - V_0^{'} = \bar{V}_{2} - \upsilon_{2}
+\end{align}
+$$
+where $\upsilon_{1} = \epsilon_0 - \epsilon_1$ and $\upsilon_{2} = \epsilon_0 - \epsilon_2$.
+
+**MNL probabilities**
+
+$$
+p_{i} = \frac
+  {exp(V_{i})}
+  {\sum_{j=0}^{2} exp(V_{j})}
+$$
+
+------------------------------------------------------------------------
+
+```{r}
+#| echo: false
+#| output: false
+
+# Clean up
+# source("https://raw.githubusercontent.com/jeffzifanwu/rProject/main/procedures/endScript.R")
+```
