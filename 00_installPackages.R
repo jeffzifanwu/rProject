@@ -23,3 +23,6 @@ if (!require("DT")) install.packages('DT')
 
 # Panel data
 if (!require("panelView")) install.packages('panelView')
+
+# Data visualization
+if (!require("ggplot2")) install.packages('ggplot2')
