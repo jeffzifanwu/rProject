@@ -21,6 +21,7 @@ library(dataHelper)
 library(evd)
 library(ggplot2)
 source("https://raw.githubusercontent.com/jeffzifanwu/rProject/main/procedures/setGgplotThemes.R")
+library(tidyr)
 ```
 
 ------------------------------------------------------------------------
@@ -96,6 +97,19 @@ N <- 1000
 # J alternatives
 J <- 3 
 
+# parameters
+alphaTrue = c(
+  0,   # alpha1, alternative 0
+  1,   # alpha1, alternative 1
+  2,   # alpha1, alternative 2
+  0.2, # alpha2, alternative 0
+  0.2, # alpha2, alternative 1
+  0.2, # alpha2, alternative 2
+  0.6, # alpha3, alternative 0
+  0.6, # alpha3, alternative 1
+  0.6  # alpha3, alternative 2
+)
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Simulate data
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -132,16 +146,24 @@ df.sim = df.sim %>%
 
 # parameters
 df.sim = df.sim %>%
-  # alpha1 alternative-specific intercepts
+  # alpha1 
   mutate(alpha1 = case_when(
-      alter_id == 0 ~ 0,
-      alter_id == 1 ~ 1,
-      alter_id == 2 ~ 2
+      alter_id == 0 ~ alphaTrue[1],
+      alter_id == 1 ~ alphaTrue[2],
+      alter_id == 2 ~ alphaTrue[3]
   )) %>%
   # alpha2
-  mutate(alpha2 = 0.1) %>%
+  mutate(alpha2 = case_when(
+      alter_id == 0 ~ alphaTrue[4],
+      alter_id == 1 ~ alphaTrue[5],
+      alter_id == 2 ~ alphaTrue[6]
+  )) %>%
   # alpha3
-  mutate(alpha3 = 0.5)
+  mutate(alpha3 = case_when(
+      alter_id == 0 ~ alphaTrue[7],
+      alter_id == 1 ~ alphaTrue[8],
+      alter_id == 2 ~ alphaTrue[9]
+  ))
 
 # deterministic indirect utility
 df.sim = df.sim %>%
@@ -167,6 +189,24 @@ df.sim = df.sim %>%
   mutate(choice = alter_id[which.max(v_total)]) %>%
   ungroup()
 
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Likelihood
+# - These are used for debug checks later
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+# Probability of choices
+df.ll = df.sim %>%
+  group_by(agent_id) %>%
+  # probability
+  mutate(p = exp(v) / sum(exp(v))) %>%
+  # is chosen indiciator
+  mutate(is_chosen = if_else(alter_id == choice, 1, 0)) %>%
+  # log-likelihood
+  mutate(ll = is_chosen * log(p))
+
+# calculate total negative log likelihood
+nllTrue = -sum(df.ll$ll)
+print(paste0("True total negative log-likelihood: ", nllTrue))
 ```
 
 ### Visualising simulated data
@@ -245,10 +285,123 @@ where $n$ indexes agents.
 $$
 nll = - \sum_{n=1}^{N} ll_n
 $$
+
 We estimate the coefficients:
 
 ```{r}
+# get predictors dataframe
+df.dmat = df.sim %>%
+  select(
+    agent_id,
+    alter_id,
+    x1, x2, x3
+  ) %>%
+  pivot_wider(
+    names_from = alter_id,
+    values_from = c(x1, x2, x3),
+    names_sep = "_"
+  )
 
+# get design matrix
+mat.x = df.dmat %>%
+  select(-agent_id) %>%
+  as.matrix()
+
+# get choice matrix
+mat.y = df.sim %>%
+  distinct(agent_id, choice) %>%
+  select(choice) %>%
+  mutate(y_0 = if_else(choice == 0, 1, 0),
+         y_1 = if_else(choice == 1, 1, 0),
+         y_2 = if_else(choice == 2, 1, 0)
+  ) %>%
+  select(-choice) %>%
+  as.matrix()
+
+# Define log-likelihood function
+nll <- function(beta, mat.x, mat.y) {
+  
+  # predictors for each alternative
+  mat.x_0 = mat.x[, grepl("_0", colnames(mat.x))]
+  mat.x_1 = mat.x[, grepl("_1", colnames(mat.x))]
+  mat.x_2 = mat.x[, grepl("_2", colnames(mat.x))]
+  
+  # parameters for each alternative
+  beta_0 = beta[c(1,4,7)]
+  beta_1 = beta[c(2,5,8)]
+  beta_2 = beta[c(3,6,9)]
+  
+  # utilities for each alternative
+  mat.v_0 = mat.x_0 %*% beta_0
+  mat.v_1 = mat.x_1 %*% beta_1
+  mat.v_2 = mat.x_2 %*% beta_2
+  mat.v   = cbind(mat.v_0, mat.v_1, mat.v_2)
+  
+  # calculate probabilities
+  mat.p_0 = exp(mat.v_0) / rowSums(exp(mat.v))
+  mat.p_1 = exp(mat.v_1) / rowSums(exp(mat.v))
+  mat.p_2 = exp(mat.v_2) / rowSums(exp(mat.v))
+  mat.p   = cbind(mat.p_0, mat.p_1, mat.p_2)
+  
+  # calculate log-likelihood
+  mat.ll = mat.y * log(mat.p)
+  
+  # total negative log-likelihood
+  nll = -sum(mat.y * log(mat.p))
+  cat("Total negative log-likelihood:", nll, "\n")
+  
+  return(nll)
+  
+}
+
+# Debug checks
+nllCurr = nll(alphaTrue, mat.x, mat.y) # current total negative log-likelihood
+if (!isTRUE(all.equal(nllCurr, nllTrue))) {
+  stop("Mismatched total negative log-likelihoods.")
+} else {
+  cat("total negative log-likelihood:", nllCurr)
+}
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Optimisation
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+# start values
+startValues = rep(0,ncol(mat.x))
+
+# Optimise
+opt = optim(
+  par   = startValues,
+  fn    = nll,
+  mat.x = mat.x,
+  mat.y = mat.y,
+  method = "BFGS",
+  hessian = TRUE
+  )
+
+# point estimates of coefficients
+mat.pe = opt$par
+
+# var-cov matrix
+mat.varCov = solve(opt$hessian)
+
+# standard errors
+mat.se = sqrt(diag(mat.varCov))
+
+# z-scores
+mat.zScore = mat.pe / mat.se
+
+# p-values
+mat.pValue = 2 * (1 - pnorm(abs(mat.zScore)))
+
+# Display results
+df.results = data.frame(
+  point_estimate = mat.pe,   
+  standard_error = mat.se,   
+  z_score        = mat.zScore,
+  p_value        = mat.pValue
+)
+print(df.results)
 
 ```
 

@@ -5,6 +5,7 @@ install.packages("BH")
 
 # Data analysis
 devtools::install_github("jeffzifanwu/dataHelper")
+if (!require("tidyr")) install.packages('tidyr')
 
 # Difference-in-differences
 install.packages("did")
