@@ -248,7 +248,7 @@ The estimation results immediately show:
 
 In the following section, we analyse the residuals of the estimated model to illustrate violations of the OLS assumptions.
 
-### Diagnosis
+### Diagnostics
 
 ```{r}
 plot(mdl)
