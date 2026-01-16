@@ -1,0 +1,1151 @@
+---
+title: "synData9_LSM25"
+format: html
+editor: visual
+---
+
+```{r}
+#| echo: false
+#| output: false
+
+# Housekeeping
+source("https://raw.githubusercontent.com/jeffzifanwu/rProject/main/procedures/beginScript.R")
+options(digits = 4)
+
+# load library
+library(dplyr)
+library(dataHelper)
+library(ggplot2)
+source("https://raw.githubusercontent.com/jeffzifanwu/rProject/main/procedures/setGgplotThemes.R")
+library(tidyr)
+library(cowplot)
+```
+
+## Setup
+
+```{r}
+# Parameters
+alpha <- 0.5    # weight on consumption
+beta  <- 1   # weight on leisure
+gamma <- 0.2    # disutility of labour
+w     <- 1     # hourly wage rate
+te    <- 16     # total time endowment
+me    <- -2    # monetary endowment
+u     <- 3
+
+# Functions
+committedLabour <- function(w, me) -me/w
+consumption     <- function(H, w) w * H
+leisure         <- function(H, HC, te) te - H - HC
+totalLabour     <- function(H, HC) H + HC
+
+# Utility function
+utility <- function(H, w, me, te) {
+  HC <- committedLabour(w, me)
+  C <- consumption(H, w)
+  L <- leisure(H, HC, te)
+  T <- totalLabour(H, HC)
+
+  if (C < 0 || L <= 0 || T < 0) return(-Inf)  # infeasible solution
+  # debug print
+  # cat("C, L, T, HC = ", C, L, T, HC, "\n")
+  # cat("alpha * log(C)  = ", alpha * log(C) , "\n")
+  # cat("beta * log(L) = ", beta * log(L), "\n")
+  # cat("gamma * log(T) = ", gamma * log(T), "\n")
+  
+  # return
+  alpha * log(C) + beta * log(L) + gamma * log(T)
+}
+
+# check scale
+utility(4, w, me, te)
+
+
+```
+
+### Constraint space
+
+```{r}
+HC = committedLabour(w, me)
+df.budget = data.frame(leisure = seq(1, te-HC, by = 0.1)) %>%
+  mutate(committed_labour= HC) %>%
+  mutate(uncommitted_labour = te - leisure - committed_labour) %>%
+  mutate(consumption = w * uncommitted_labour) %>%
+  mutate(total_labour = uncommitted_labour + committed_labour)
+
+varLevels = c(
+  "consumption",
+  "committed_labour",
+  "uncommitted_labour",
+  "total_labour"
+  )
+
+df.plot.budget <- df.budget %>%
+  pivot_longer(cols = c(uncommitted_labour, consumption, committed_labour, total_labour), names_to = "variable", values_to = "value") %>%
+  mutate(variable = factor(variable, levels = varLevels))
+
+# Plot
+ggp = ggplot(df.plot.budget, aes(x = leisure, y = value)) +
+  geom_line(color = "seagreen4") +
+  geom_vline(xintercept = te, linetype = "dashed", color = "seagreen4") +
+  geom_vline(xintercept = te - HC, linetype = "dotted", color = "seagreen4") +
+  facet_wrap(~ variable, scales = "free_y", ncol = 2) +
+  labs(x = "Leisure", y = NULL)
+
+print(ggp)
+
+```
+
+### Utility maximisation problem
+
+We test our utility maximisation problem
+
+```{r}
+# ump <- optimize(function(H) utility(H, w, me, te), interval = c(0.01, te - HC - 0.01), maximum = TRUE)
+uncompensatedLabour <- function(w, me, te) {
+  # Compute committed labour
+  HC <- committedLabour(w, me)
+  
+  # Maximise utility subject to time constraint
+  ump <- optimize(
+    f = function(H) utility(H, w, me, te),
+    interval = c(0.01, te - HC - 0.01),
+    maximum = TRUE
+  )
+  
+  # Get optimal H
+  H <- ump$maximum
+  
+  maxU <- ump$objective 
+  # print(maxU)
+  
+  # Return both HC and H
+  return(H)
+}
+
+# Extract optimal values
+HC <- committedLabour(w, me)
+ump.H <- uncompensatedLabour(w, me, te)
+ump.C <- consumption(ump.H, w)
+ump.L <- leisure(ump.H, HC, te)
+ump.T <- totalLabour(ump.H, HC)
+ump.U <- utility(ump.H, w, me, te)
+
+# Print results
+cat("  Time endowment:", te, "\n")
+cat("  HC: ", HC, "\n")
+cat("  ump.H:", ump.H, "\n")
+cat("  ump.U:", ump.U, "\n")
+```
+
+### Time resource minimiation
+
+```{r}
+# minTimeEndowment function: utilityTarget is only included for the syntax in nloptr. The current calculation doesn't need it.
+minTimeEndowment <- function(x, w, me, utilityTarget) {
+  HC <- committedLabour(w, me)
+  if (x[1] <= 0) return(1e6)  # Penalise infeasible
+  if (x[2] <= 0) return(1e6)
+  x[1] + x[2] + HC
+}
+
+# check: it should return te
+x = c(ump.H, ump.L)
+minTimeEndowment(x, w, me)
+
+# Utility function - form 2 - takes L and H inputs
+tc.utility <- function(x, w, me) {
+  
+  # x[1] is H, x[2] is L
+  
+  HC <- committedLabour(w, me)
+  C <- consumption(x[1], w)
+  T <- totalLabour(x[1], HC)
+
+  if (C <= 0 || x[2] <= 0 || T <= 0 || x[1] <= 0) return(-Inf)  # infeasible solution
+  # alpha * log(C) + beta * log(x[2]) + gamma * log(T)
+  utility(x[1], w, me, T + x[2])
+}
+
+# check if tc.utility returns ump.U
+tc.utility(x, w, me)
+
+# Constraint: utility >= utilityTarget
+tc.utilityConstraint <- function(x, w, me, utilityTarget) {
+  utilityTarget - tc.utility(x, w, me)
+}
+
+# check: it should return 0
+tc.utilityConstraint(x, w, me, ump.U)
+
+# Optimise: time compensated labour supply
+library(nloptr)
+compensatedLabour <- function(w, me, utilityTarget) {
+  
+  # minimisation
+  rmp <- nloptr(
+    x0 = c(1,1), # initial guess i.e., starting value
+    w = w, me = me,  utilityTarget = utilityTarget, # other inputs
+    eval_f = minTimeEndowment,
+    eval_g_ineq = tc.utilityConstraint,
+    lb = c(0.01, 0.01),
+    ub = c(Inf, Inf),
+    opts = list("algorithm" = "NLOPT_LN_COBYLA", "xtol_rel" = 1e-6)
+  )
+  
+  # Extract optimal values
+  rmp.sol <- rmp$solution
+  rmp.obj <- rmp$objective
+  
+  # check objective value
+  # cat("Objective value:", rmp.obj, "\n")
+  
+  # Return compensated H
+  return(rmp.sol)
+}
+
+rmp.sol = compensatedLabour(w, me, ump.U)
+rmp.H   = rmp.sol[1]
+rmp.L   = rmp.sol[2]
+teMin = minTimeEndowment(rmp.sol, w, me)
+rmp.U  = tc.utility(rmp.sol, w, me)
+
+# Results
+cat("  Target utility =", ump.U, "\n")
+cat("  Achieved utility =", rmp.U, "\n")
+cat("  rmp.H:",  ump.H, "\n")
+cat("  rmp.L:",  ump.L, "\n")
+cat("  rmp.te:", teMin, "\n")
+
+```
+
+### Monetary resource minimisation problem
+
+```{r}
+# minMonetaryEndowment function: utilityTarget is only included for the syntax in nloptr. The current calculation doesn't need it.
+minMonetaryEndowment <- function(x, w, te, utilityTarget) {
+  # x[1] = H, x[2] = L
+  if (x[1] <= 0) return(1e6)  # Penalise infeasible
+  if (x[2] <= 0) return(1e6)
+  w * (x[1] + x[2] - te)
+}
+
+# check: it should return me
+x = c(ump.H, ump.L)
+minMonetaryEndowment(x, w, te)
+
+# Utility function - form 3 - takes L, H and te inputs
+mc.utility <- function(x, w, te) {
+  
+  # x[1] is H, x[2] is L
+  
+  HC <- te - x[1] - x[2]
+  C <- consumption(x[1], w)
+  T <- totalLabour(x[1], HC)
+  
+  # cat("HC: ", HC, "\n")
+  # cat("H: ", x[1], "\n")
+  
+  if (C <= 0 || x[2] <= 0 || T <= 0 || x[1] <= 0) return(-Inf)  # infeasible solution
+  # utility(H, w, me, te)
+  utility(x[1], w, (-1) * w * HC, te)
+}
+
+# check if mc.utility returns ump.U
+mc.utility(x, w, te)
+
+# Constraint: utility >= utilityTarget
+mc.utilityConstraint <- function(x, w, te, utilityTarget) {
+  utilityTarget - mc.utility(x, w, te)
+}
+
+# check: it should return 0
+mc.utilityConstraint(x, w, te, ump.U)
+
+# Optimise: monetary compensated labour supply
+library(nloptr)
+mcLabour <- function(w, te, utilityTarget) {
+  
+  # minimisation
+  rmp <- nloptr(
+    x0 = c(1,1), # initial guess i.e., starting value
+    w = w, te = te,  utilityTarget = utilityTarget, # other inputs
+    eval_f = minMonetaryEndowment,
+    eval_g_ineq = mc.utilityConstraint,
+    lb = c(0.01, 0.01),
+    ub = c(Inf, Inf),
+    opts = list("algorithm" = "NLOPT_LN_COBYLA", "xtol_rel" = 1e-6)
+  )
+  
+  # Extract optimal values
+  rmp.sol <- rmp$solution
+  rmp.obj <- rmp$objective
+  
+  # check objective value
+  # cat("Objective value:", rmp.obj, "\n")
+  
+  # Return compensated H
+  return(rmp.sol)
+}
+
+rmp.sol = mcLabour(w, te, ump.U)
+rmp.H   = rmp.sol[1]
+rmp.L   = rmp.sol[2]
+meMin = minMonetaryEndowment(rmp.sol, w, te)
+rmp.U  = mc.utility(rmp.sol, w, te)
+
+# Results
+cat("  Target utility =", ump.U, "\n")
+cat("  Achieved utility =", rmp.U, "\n")
+cat("  rmp.H:",  ump.H, "\n")
+cat("  rmp.L:",  ump.L, "\n")
+cat("  rmp.me:", meMin, "\n")
+
+```
+
+# ------------------
+
+# Simulate curves: Cobb-Douglas
+
+# -----------------
+
+```{r}
+
+# simulate wage rates, time endowment, monetary endowment
+teSeq <- seq(12, 20, length.out = 20)
+meSeq <- seq(-8, -0.5, length.out = 20)
+wSeq  <- seq(0.4, 1.6, length.out = 20)
+
+# time endowment
+df.te <- do.call(rbind, lapply(teSeq, function(x) {
+  # for each value in the sequence, compute:
+  H <- uncompensatedLabour(w, me, x)[1]
+  HC<- committedLabour(w, me)
+  T <- totalLabour(H, HC)
+  U <- utility(H, w, me, x)
+  # create a dataframe for the current values
+  data.frame(
+    wage_rate = w, 
+    monetary_endowment = me, 
+    time_endowment = x, 
+    committed_labour = HC,
+    uncommitted_labour = H,
+    total_labour = T,
+    utility = U
+    )
+}))
+
+# monetary endowment
+df.me <- do.call(rbind, lapply(meSeq, function(x) {
+  # for each value in the sequence, compute:
+  H <- uncompensatedLabour(w, x, te)[1]
+  HC<- committedLabour(w, x)
+  T <- totalLabour(H, HC)
+  U <- utility(H, w, x, te)
+  # create a dataframe for the current values
+  data.frame(
+    wage_rate = w, 
+    monetary_endowment = x, 
+    time_endowment = te, 
+    committed_labour = HC,
+    uncommitted_labour = H,
+    total_labour = T,
+    utility = U
+    )
+}))
+
+# wage rate
+df.w <- do.call(rbind, lapply(wSeq, function(x) {
+  # for each value in the sequence, compute:
+  H <- uncompensatedLabour(x, me, te)[1]
+  HC<- committedLabour(x, me)
+  T <- totalLabour(H, HC)
+  U <- utility(H, x, me, te)
+  # create a dataframe for the current values
+  data.frame(
+    wage_rate = x, 
+    monetary_endowment = me, 
+    time_endowment = te, 
+    committed_labour = HC,
+    uncommitted_labour = H,
+    total_labour = T,
+    utility = U
+    )
+}))
+
+# Monetary-compensated time endowment
+df.mcTe = do.call(rbind, lapply(teSeq, function(x){
+  # for each value in the sequence, compute:
+  sol <- mcLabour(w, x, u)
+  H   <- sol[1]
+  meMin <- minMonetaryEndowment(sol, w, x)
+  HC  <- committedLabour(w, meMin)
+  T   <- totalLabour(H, HC)
+  # create a dataframe for the current values
+  data.frame(
+    wage_rate = w, 
+    time_endowment = x, 
+    utility_level = u, 
+    committed_labour = HC,
+    uncommitted_labour = H,
+    total_labour = T,
+    monetary_resource = meMin
+    )
+}))
+
+# Monetary-compensated wage rate
+df.mcWr = do.call(rbind, lapply(wSeq, function(x){
+  # for each value in the sequence, compute:
+  sol <- mcLabour(x, te, u)
+  H   <- sol[1]
+  meMin <- minMonetaryEndowment(sol, x, te)
+  HC  <- committedLabour(x, meMin)
+  T   <- totalLabour(H, HC)
+  # create a dataframe for the current values
+  data.frame(
+    wage_rate = x, 
+    time_endowment = te, 
+    utility_level = u, 
+    committed_labour = HC,
+    uncommitted_labour = H,
+    total_labour = T,
+    monetary_resource = meMin
+    )
+}))
+
+# time-compensated monetary endowment
+df.tcMe = do.call(rbind, lapply(meSeq, function(x){
+  # for each value in the sequence, compute:
+  sol <- compensatedLabour(w, x, u)
+  H   <- sol[1]
+  HC  <- committedLabour(w, x)
+  T   <- totalLabour(H, HC)
+  teMin <- minTimeEndowment(sol, w, x)
+  # create a dataframe for the current values
+  data.frame(
+    wage_rate = w, 
+    monetary_endowment = x, 
+    utility_level = u, 
+    committed_labour = HC,
+    uncommitted_labour = H,
+    total_labour = T,
+    time_resource = teMin
+    )
+}))
+
+# time-compensated wage rate
+df.tcWr = do.call(rbind, lapply(wSeq, function(x){
+  # for each value in the sequence, compute:
+  sol <- compensatedLabour(x, me, u)
+  H   <- sol[1]
+  HC  <- committedLabour(x, me)
+  T   <- totalLabour(H, HC)
+  teMin <- minTimeEndowment(sol, x, me)
+  # create a dataframe for the current values
+  data.frame(
+    wage_rate = x, 
+    monetary_endowment = me, 
+    utility_level = u, 
+    committed_labour = HC,
+    uncommitted_labour = H,
+    total_labour = T,
+    time_resource = teMin
+    )
+}))
+
+```
+
+```{r}
+plotLabourCurve <- function(df, yvar, ylab, xvar, xlab, fileName) {
+  
+  # Row 1: labour supply
+  df.plot = df %>%
+    select(committed_labour, uncommitted_labour, total_labour, all_of(yvar)) %>%
+    pivot_longer(cols = c("committed_labour", "uncommitted_labour", "total_labour"), names_to = "type", values_to = "hours") %>%
+    mutate(type = factor(type, levels = c("committed_labour", "uncommitted_labour", "total_labour")))
+  
+  # calculate y min/max dynamically
+  # yvals <- df.plot[[yvar]]
+  # ymin <- floor(min(yvals, na.rm = TRUE))
+  # ymax <- ceiling(max(yvals, na.rm = TRUE))
+  
+  if (ylab == "Time endowment") {
+      ymin <- floor(min(teSeq, na.rm = TRUE))
+      ymax <- ceiling(max(teSeq, na.rm = TRUE))
+      ybreaks <- pretty(c(ymin, ymax), n = 4)
+    } else if (ylab == "Monetary endowment") {
+      ymin <- floor(min(meSeq, na.rm = TRUE))
+      ymax <- 0
+      ybreaks <- pretty(c(ymin, ymax), n = 4)
+    } else if (ylab == "Wage rate") {
+      ymin <- floor(min(wSeq, na.rm = TRUE)*10)/10
+      ymax <- ceiling(max(wSeq, na.rm = TRUE)*10)/10
+      ybreaks <- seq(0.4, 1.6, by = 0.4) # pretty(c(ymin, ymax), n = 5)
+    } else {
+      stop("Error")
+    }
+  
+  # ggplot
+  ggp1 = ggplot(df.plot, aes(x = hours, y = .data[[yvar]], color = type)) +
+    geom_point() +
+    scale_color_manual(
+      name = NULL,
+      values = c("committed_labour" = "green", 
+                 "uncommitted_labour" = "blue", 
+                 "total_labour" = "red"),
+      labels = c("committed_labour" = "Committed ", 
+                 "uncommitted_labour" = "Uncommitted ", 
+                 "total_labour" = "Total")
+    ) +
+    scale_x_continuous(limits = c(0, 12), breaks = seq(0, 12, 4)) +
+    scale_y_continuous(limits = c(ymin, ymax), breaks = ybreaks) +
+    labs(x = "Labour (time unit)", y = ylab, color = "Type") +
+    theme(
+      text = element_text(size = 16),
+      # legend.position = "inside",
+      legend.position = "bottom",
+      # legend.position.inside = c(0.85, 0.85), # numeric coordinates
+      # legend.background = element_rect(
+      #   fill = scales::alpha("white", 0.5),
+      #   colour = "black",         # border colour
+      #   linewidth = 0.25         # border thickness
+      #   ),
+      # legend.key = element_rect(fill = NA)
+      )
+  
+  print(ggp1)
+  
+  # Row 2: Utility, Monetary resource, Time resource
+  df.plot = df %>%
+    select(all_of(xvar), all_of(yvar))
+  
+  # calculate min/max dynamically
+  xvals <- df.plot[[xvar]]
+  if (xlab == "Utility") {
+      xmin <- floor(min(xvals, na.rm = TRUE))
+      xmax <- ceiling(max(xvals, na.rm = TRUE))
+      xbreaks <- pretty(c(xmin, xmax), n = 4)
+    } else if (xlab == "Time resource") {
+      xmin <- median(xvals) - (max(teSeq) - min(teSeq))/2
+      xmax <- median(xvals) + (max(teSeq) - min(teSeq))/2
+      xbreaks <- pretty(c(xmin, xmax), n = 4)
+    } else if (xlab == "Monetary resource") {
+      xmin <- median(xvals) - (max(meSeq) - min(meSeq))/2
+      xmax <- median(xvals) + (max(meSeq) - min(meSeq))/2
+      xbreaks <- pretty(c(xmin, xmax), n = 4)
+    } else {
+      # default: dynamic calculation with pretty rounding
+      stop("error")
+    }
+
+  # ggplot
+  ggp2 = ggplot(df.plot, aes(x = .data[[xvar]], y = .data[[yvar]])) +
+    geom_point(color = "black")+
+    scale_x_continuous(limits = c(xmin, xmax), breaks = xbreaks) +
+    scale_y_continuous(limits = c(ymin, ymax), breaks = ybreaks) +
+    labs(x = xlab, y = NULL) +
+    theme(
+      text = element_text(size = 16),
+      axis.title.y = element_blank(),
+      axis.text.y = element_blank(),  # remove tick labels
+      axis.ticks.y = element_blank()  # remove tick marks
+      )
+
+  print(ggp2)
+  
+  # combine plots
+  ggp <- plot_grid(
+    ggp1,  # left plot
+    ggp2,  # right plot
+    ncol = 2,         # only 2 columns now
+    align = "hv",     # align both horizontally and vertically
+    rel_widths = c(1, 1)  # left wider, right narrower
+  )
+  
+  ggsave(filename = fileName, plot = ggp, width = 8, height = 3.5, dpi = 300)
+}
+
+# Plot ucTe
+plotLabourCurve(
+  df.te, # dataframe
+  "time_endowment", "Time endowment", # yvar, ylab
+  "utility", "Utility", # xvar, xlab
+  paste("figure/ch2_ucTeEffect_me", me, "gamma", gamma, ".png",sep = "") # fileName
+  )
+print("uncompensated time endowment effect")
+
+# Plot ucMe
+plotLabourCurve(
+  df.me, # dataframe
+  "monetary_endowment", "Monetary endowment", # yvar, ylab
+  "utility", "Utility", # xvar, xlab
+  paste("figure/ch2_ucMeEffect_te", te, "gamma", gamma, ".png",sep = "") # fileName
+  )
+print("uncompensated monetary endowment effect")
+
+# Plot ucWr
+plotLabourCurve(
+  df.w, # dataframe
+  "wage_rate", "Wage rate", # yvar, ylab
+  "utility", "Utility", # xvar, xlab
+  paste("figure/ch2_ucWrEffect_me", me, "te", te, "gamma", gamma, ".png",sep = "") # fileName
+  )
+print("uncompensated wage rate effect")
+
+# Plot mcTe
+plotLabourCurve(
+  df.mcTe, # dataframe
+  "time_endowment", "Time endowment", # yvar, ylab
+  "monetary_resource", "Monetary resource", # xvar, xlab
+  paste("figure/ch2_mcTeEffect", "utility", u, "gamma", gamma, ".png",sep = "") # fileName
+  )
+print("monetary-compensated time endowment effect")
+
+# Plot mcWr
+plotLabourCurve(
+  df.mcWr, # dataframe
+  "wage_rate", "Wage rate", # yvar, ylab
+  "monetary_resource", "Monetary resource", # xvar, xlab
+  paste("figure/ch2_mcWrEffect", "utility", u, "gamma", gamma, ".png",sep = "") # fileName
+  )
+print("monetary-compensated wage rate effect")
+
+# Plot tcMe
+plotLabourCurve(
+  df.tcMe, # dataframe
+  "monetary_endowment", "Monetary endowment", # yvar, ylab
+  "time_resource", "Time resource", # xvar, xlab
+  paste("figure/ch2_tcMeEffect", "utility", u, "gamma", gamma, ".png",sep = "") # fileName
+  )
+print("time-compensated monetary endowment effect")
+
+# Plot tcWr
+plotLabourCurve(
+  df.tcWr, # dataframe
+  "wage_rate", "Wage rate", # yvar, ylab
+  "time_resource", "Time resource", # xvar, xlab
+  paste("figure/ch2_tcWrEffect", "utility", u, "gamma", gamma, ".png",sep = "") # fileName
+  )
+print("time-compensated wage rate effect")
+
+```
+
+# ------------------
+
+# Simulate curves: Quadratic
+
+# -----------------
+
+```{r}
+# Parameters
+alphaC <- -0.15 
+betaC  <- 3
+alphaL <- -0.01    
+betaL  <- 1   
+alphaT <- -0.05   
+betaT  <- -0.2
+
+# Utility function
+utility <- function(H, w, me, te) {
+  HC <- committedLabour(w, me)
+  C <- consumption(H, w)
+  L <- leisure(H, HC, te)
+  T <- totalLabour(H, HC)
+
+  if (C < 0 || L <= 0 || T < 0) return(-Inf)  # infeasible solution
+  # cat("C, L, T = ", C, L, T, "\n")
+  # cat("alphaC * C^2 = ", alphaC * C^2, "\n")
+  # cat("betaC * C = ", betaC * C, "\n")
+  # cat("alphaL * L^2 = ", alphaL * L^2, "\n")
+  # cat("betaL * L = ", betaL * L, "\n")
+  # cat("alphaT * T^2 = ", alphaT * T^2, "\n")
+  # cat("betaT * T = ", betaT * T, "\n")
+  alphaC * C^2 + betaC * C + alphaL * L^2 + betaL * L + alphaT * T^2 + betaT * T
+}
+
+# check scales
+utility(5, w, me, te)
+
+```
+
+## Utility maximisation problem
+
+We test our utility maximisation problem
+
+```{r}
+# ump <- optimize(function(H) utility(H, w, me, te), interval = c(0.01, te - HC - 0.01), maximum = TRUE)
+uncompensatedLabour <- function(w, me, te) {
+  # Compute committed labour
+  HC <- committedLabour(w, me)
+  
+  # Maximise utility subject to time constraint
+  ump <- optimize(
+    f = function(H) utility(H, w, me, te),
+    interval = c(0.01, te - HC - 0.01),
+    maximum = TRUE
+  )
+  
+  # Get optimal H
+  H <- ump$maximum
+  
+  maxU <- ump$objective 
+  # print(maxU)
+  
+  # Return both HC and H
+  return(H)
+}
+
+# Extract optimal values
+HC <- committedLabour(w, me)
+ump.H <- uncompensatedLabour(w, me, te)
+ump.C <- consumption(ump.H, w)
+ump.L <- leisure(ump.H, HC, te)
+ump.T <- totalLabour(ump.H, HC)
+ump.U <- utility(ump.H, w, me, te)
+
+# Print results
+cat("  Time endowment:", te, "\n")
+cat("  HC: ", HC, "\n")
+cat("  ump.H:", ump.H, "\n")
+cat("  ump.U:", ump.U, "\n")
+```
+
+## Monetary resource minimisation problem
+
+We test our resource minimisation problem
+
+```{r}
+# minMonetaryEndowment function: utilityTarget is only included for the syntax in nloptr. The current calculation doesn't need it.
+minMonetaryEndowment <- function(x, w, te, utilityTarget) {
+  # x[1] = H, x[2] = L
+  if (x[1] <= 0) return(1e6)  # Penalise infeasible
+  if (x[2] <= 0) return(1e6)
+  w * (x[1] + x[2] - te)
+}
+
+# check: it should return me
+x = c(ump.H, ump.L)
+minMonetaryEndowment(x, w, te)
+
+# Utility function - form 3 - takes L, H and te inputs
+mc.utility <- function(x, w, te) {
+  
+  # x[1] is H, x[2] is L
+  
+  HC <- te - x[1] - x[2]
+  C <- consumption(x[1], w)
+  T <- totalLabour(x[1], HC)
+  
+  # cat("HC: ", HC, "\n")
+  # cat("H: ", x[1], "\n")
+  
+  if (C <= 0 || x[2] <= 0 || T <= 0 || x[1] <= 0) return(-Inf)  # infeasible solution
+  # utility(H, w, me, te)
+  utility(x[1], w, (-1) * w * HC, te)
+}
+
+# check if mc.utility returns ump.U
+mc.utility(x, w, te)
+
+# Constraint: utility >= utilityTarget
+mc.utilityConstraint <- function(x, w, te, utilityTarget) {
+  utilityTarget - mc.utility(x, w, te)
+}
+
+# check: it should return 0
+mc.utilityConstraint(x, w, te, ump.U)
+
+# Optimise: monetary compensated labour supply
+library(nloptr)
+mcLabour <- function(w, te, utilityTarget) {
+  
+  # minimisation
+  rmp <- nloptr(
+    x0 = c(1,1), # initial guess i.e., starting value
+    w = w, te = te,  utilityTarget = utilityTarget, # other inputs
+    eval_f = minMonetaryEndowment,
+    eval_g_ineq = mc.utilityConstraint,
+    lb = c(0.01, 0.01),
+    ub = c(Inf, Inf),
+    opts = list("algorithm" = "NLOPT_LN_COBYLA", "xtol_rel" = 1e-6)
+  )
+  
+  # Extract optimal values
+  rmp.sol <- rmp$solution
+  rmp.obj <- rmp$objective
+  
+  # check objective value
+  # cat("Objective value:", rmp.obj, "\n")
+  
+  # Return compensated H
+  return(rmp.sol)
+}
+
+rmp.sol = mcLabour(w, te, ump.U)
+rmp.H   = rmp.sol[1]
+rmp.L   = rmp.sol[2]
+meMin = minMonetaryEndowment(rmp.sol, w, te)
+rmp.U  = mc.utility(rmp.sol, w, te)
+
+# Results
+cat("  Target utility =", ump.U, "\n")
+cat("  Achieved utility =", rmp.U, "\n")
+cat("  rmp.H:",  rmp.H, "\n")
+cat("  rmp.L:",  rmp.L, "\n")
+cat("  rmp.me:", meMin, "\n")
+
+```
+
+## Data
+
+```{r}
+
+# simulate wage rates, time endowment, monetary endowment
+teSeq <- seq(12, 20, by = 0.5)
+meSeq <- seq(-6, -1, by = 0.3)
+wSeq  <- seq(0.2, 1.6, by =0.05)
+
+# time endowment
+df.te <- do.call(rbind, lapply(teSeq, function(x) {
+  H <- uncompensatedLabour(w, me, x)[1]
+  HC<- committedLabour(w, me)
+  T <- totalLabour(H, HC)
+  data.frame(
+    wage_rate = w, 
+    monetary_endowment = me, 
+    time_endowment = x, 
+    committed_labour = HC,
+    uncommitted_labour = H,
+    total_labour = T
+    )
+}))
+
+# monetary endowment
+df.me <- do.call(rbind, lapply(meSeq, function(x) {
+  H <- uncompensatedLabour(w, x, te)[1]
+  HC<- committedLabour(w, x)
+  T <- totalLabour(H, HC)
+  data.frame(
+    wage_rate = w, 
+    monetary_endowment = x, 
+    time_endowment = te, 
+    committed_labour = HC,
+    uncommitted_labour = H,
+    total_labour = T
+    )
+}))
+
+# wage rate
+df.w <- do.call(rbind, lapply(wSeq, function(x) {
+  H <- uncompensatedLabour(x, me, te)[1]
+  HC<- committedLabour(x, me)
+  T <- totalLabour(H, HC)
+  data.frame(
+    wage_rate = x, 
+    monetary_endowment = me, 
+    time_endowment = te, 
+    committed_labour = HC,
+    uncommitted_labour = H,
+    total_labour = T
+    )
+}))
+
+```
+
+## Plot
+
+```{r}
+plotLabourCurve <- function(df, yvar, ylab, fileName) {
+  
+  # data
+  df.plot = df %>%
+    select(committed_labour, uncommitted_labour, total_labour, all_of(yvar)) %>%
+    pivot_longer(cols = c("committed_labour", "uncommitted_labour", "total_labour"), names_to = "type", values_to = "hours") %>%
+    mutate(type = factor(type, levels = c("committed_labour", "uncommitted_labour", "total_labour")))
+  
+  # ggplot
+  ggp = ggplot(df.plot, aes(x = hours, y = .data[[yvar]], color = type)) +
+    geom_point() +
+    scale_color_manual(
+      name = "Type",
+      values = c("committed_labour" = "green", 
+                 "uncommitted_labour" = "blue", 
+                 "total_labour" = "red"),
+      labels = c("committed_labour" = "Committed", 
+                 "uncommitted_labour" = "Uncommitted", 
+                 "total_labour" = "Total")
+    ) +
+    scale_x_continuous(limits = c(0, 12), breaks = seq(0, 12, 2)) +
+    labs(x = "Labour (time unit)", y = ylab, color = "Type") +
+    theme(text = element_text(size = 14))
+  
+  print(ggp)
+  
+  ggsave(filename = fileName, plot = ggp, width = 6.3, height = 4.5, dpi = 300)
+}
+
+# Plot te vs labour
+plotLabourCurve(df.te, "time_endowment", "Time endowment", paste("figure/ch2_quadUtility_teEffect_me", me, "alphaT", alphaT, ".png",sep = ""))
+
+# Plot me vs labour
+plotLabourCurve(df.me, "monetary_endowment", "Monetary endowment", paste("figure/ch2_quadUtility_meEffect_me", me, "alphaT", alphaT, ".png",sep = ""))
+
+# Plot wage rate vs labour
+plotLabourCurve(df.w, "wage_rate", "Wage rate", paste("figure/ch2_quadUtility_wEffect_me", me, "alphaT", alphaT, ".png",sep = ""))
+```
+
+# ------------------
+
+# Policy application
+
+# ------------------
+
+```{r}
+# Parameters
+alphaC <- -0.15 
+alphaL <- -0.01    
+betaL  <- 1   
+alphaT <- -0.05  
+```
+
+## Worker 1
+
+```{r}
+
+# Worker 1
+betaC  <- 3
+betaT  <- -0.2
+
+# Check optimal values
+HC <- committedLabour(w, me)
+ump.H <- uncompensatedLabour(w, me, te)
+ump.C <- consumption(ump.H, w)
+ump.L <- leisure(ump.H, HC, te)
+ump.T <- totalLabour(ump.H, HC)
+ump.U <- utility(ump.H, w, me, te)
+
+# marginal utilities
+mUC = 2 * alphaC * w * ump.H + betaC  
+mUCC= 2 * alphaC
+D = mUC + w * mUCC * ump.T # segment determinant
+
+# Print results
+cat("  --- Worker 1 ---", "\n")
+cat("  Time endowment:", te, "\n")
+cat("  HC: ", HC, "\n")
+cat("  ump.H:", ump.H, "\n")
+cat("  ump.T:", ump.T, "\n")
+cat("  ump.U:", ump.U, "\n\n")
+
+cat("  Determinant (D)", "\n")
+cat("    if D < 0, then occupies the upper segment", "\n")
+cat("    otherwise, middle segment", "\n")
+cat("  D: ", D, "\n\n")
+
+
+# Policy: Uncompensated 
+me1 = me + 0.1*me 
+te1 = te - 0.1*te
+headerStr = "  --- After policy (uncompensated) ---"
+source("synData9_LSM25_subProcedures01.R")
+
+# Policy: reimbursed commuting costs 
+me1 = me + 0*me 
+te1 = te - 0.1*te
+headerStr = "  --- After policy (reimbursed CC) ---"
+source("synData9_LSM25_subProcedures01.R")
+
+# Policy: reimbursed commuting costs + paid commuting time
+me1 = me + w*0.1*te 
+te1 = te - 0.1*te
+headerStr = "  --- After policy (reimbursed CC and paid CT) ---"
+source("synData9_LSM25_subProcedures01.R")
+
+# Policy: monetary-compensated
+te1 = te - 0.1*te
+rmp.sol = mcLabour(w, te1, ump.U)
+rmp.H   = rmp.sol[1]
+meMin = minMonetaryEndowment(rmp.sol, w, te1)
+HC    = committedLabour(w, meMin)
+rmp.U = mc.utility(rmp.sol, w, te1)
+rmp.T = totalLabour(rmp.H, HC)
+
+cat("  --- After policy (monetary-compensated) ---", "\n")
+cat("  Target utility =", ump.U, "\n")
+cat("  te: ", te1, "\n")
+cat("  meMin:", meMin, "\n")
+cat("  meMin (% change):", (meMin - me)/abs(me), "\n")
+cat("  meMin - me:", meMin - me, "\n")
+cat("  HC:",  HC, "\n")
+cat("  rmp.H:",  rmp.H, "\n")
+cat("  rmp.T:",  rmp.T, "\n")
+cat("  rmp.T (% change):", (rmp.T - ump.T)/ump.T, "\n")
+cat("  Achieved utility =", rmp.U, "\n")
+cat("  rmp.U (% change):", (rmp.U - ump.U)/ump.U, "\n\n")
+
+# Policy: wage rate-compensated
+me1 = me + 0.1*me 
+te1 = te - 0.1*te
+source("synData9_LSM25_subProcedures02.R")
+
+```
+
+## Worker 2
+
+```{r}
+# Worker 2
+betaC  <- 2
+betaT  <- -0.2
+
+# optimal values
+HC <- committedLabour(w, me)
+ump.H <- uncompensatedLabour(w, me, te)
+ump.C <- consumption(ump.H, w)
+ump.L <- leisure(ump.H, HC, te)
+ump.T <- totalLabour(ump.H, HC)
+ump.U <- utility(ump.H, w, me, te)
+
+# marginal utilities
+mUC = 2 * alphaC * w * ump.H + betaC  
+mUCC= 2 * alphaC
+D = mUC + w * mUCC * ump.T # segment determinant
+
+# Print results
+cat("  --- Worker 2 ---", "\n")
+cat("  Time endowment:", te, "\n")
+cat("  HC: ", HC, "\n")
+cat("  ump.H:", ump.H, "\n")
+cat("  ump.T:", ump.T, "\n")
+cat("  ump.U:", ump.U, "\n\n")
+
+cat("  Determinant (D)", "\n")
+cat("    if D < 0, then occupies the upper segment", "\n")
+cat("    otherwise, middle segment", "\n")
+cat("  D: ", D, "\n\n")
+
+# Policy: Uncompensated 
+me1 = me + 0.1*me 
+te1 = te - 0.1*te
+headerStr = "  --- After policy (uncompensated) ---"
+source("synData9_LSM25_subProcedures01.R")
+
+# Policy: reimbursed commuting costs 
+me1 = me + 0*me 
+te1 = te - 0.1*te
+headerStr = "  --- After policy (reimbursed CC) ---"
+source("synData9_LSM25_subProcedures01.R")
+
+# Policy: reimbursed commuting costs + paid commuting time
+me1 = me + w*0.1*te 
+te1 = te - 0.1*te
+headerStr = "  --- After policy (reimbursed CC and paid CT) ---"
+source("synData9_LSM25_subProcedures01.R")
+
+# Policy: monetary-compensated
+te1 = te - 0.1*te
+rmp.sol = mcLabour(w, te1, ump.U)
+rmp.H   = rmp.sol[1]
+meMin = minMonetaryEndowment(rmp.sol, w, te1)
+HC    = committedLabour(w, meMin)
+rmp.U = mc.utility(rmp.sol, w, te1)
+rmp.T = totalLabour(rmp.H, HC)
+
+cat("  --- After policy (monetary-compensated) ---", "\n")
+cat("  Target utility =", ump.U, "\n")
+cat("  te: ", te1, "\n")
+cat("  meMin:", meMin, "\n")
+cat("  meMin (% change):", (meMin - me)/abs(me), "\n")
+cat("  meMin - me:", meMin - me, "\n")
+cat("  HC:",  HC, "\n")
+cat("  rmp.H:",  rmp.H, "\n")
+cat("  rmp.T:",  rmp.T, "\n")
+cat("  rmp.T (% change):", (rmp.T - ump.T)/ump.T, "\n")
+cat("  Achieved utility =", rmp.U, "\n")
+cat("  rmp.U (% change):", (rmp.U - ump.U)/ump.U, "\n\n")
+
+# Policy: wage rate-compensated
+me1 = me + 0.1*me 
+te1 = te - 0.1*te
+source("synData9_LSM25_subProcedures02.R")
+
+```
+
+## Worker 3
+
+```{r}
+# Worker 3
+betaC  <- 3
+betaT  <- 0.2
+
+# optimal values
+HC <- committedLabour(w, me)
+ump.H <- uncompensatedLabour(w, me, te)
+ump.C <- consumption(ump.H, w)
+ump.L <- leisure(ump.H, HC, te)
+ump.T <- totalLabour(ump.H, HC)
+ump.U <- utility(ump.H, w, me, te)
+
+# marginal utilities
+mUC = 2 * alphaC * w * ump.H + betaC  
+mUCC= 2 * alphaC
+D = mUC + w * mUCC * ump.T # segment determinant
+
+# Print results
+cat("  --- Worker 3 ---", "\n")
+cat("  Time endowment:", te, "\n")
+cat("  HC: ", HC, "\n")
+cat("  ump.H:", ump.H, "\n")
+cat("  ump.T:", ump.T, "\n")
+cat("  ump.U:", ump.U, "\n\n")
+
+cat("  Determinant (D)", "\n")
+cat("    if D < 0, then occupies the upper segment", "\n")
+cat("    otherwise, middle segment", "\n")
+cat("  D: ", D, "\n\n")
+
+# Policy: Uncompensated 
+me1 = me + 0.1*me 
+te1 = te - 0.1*te
+headerStr = "  --- After policy (uncompensated) ---"
+source("synData9_LSM25_subProcedures01.R")
+
+# Policy: reimbursed commuting costs 
+me1 = me + 0*me 
+te1 = te - 0.1*te
+headerStr = "  --- After policy (reimbursed CC) ---"
+source("synData9_LSM25_subProcedures01.R")
+
+# Policy: reimbursed commuting costs + paid commuting time
+me1 = me + w*0.1*te 
+te1 = te - 0.1*te
+headerStr = "  --- After policy (reimbursed CC and paid CT) ---"
+source("synData9_LSM25_subProcedures01.R")
+
+# Policy: monetary-compensated
+te1 = te - 0.1*te
+rmp.sol = mcLabour(w, te1, ump.U)
+rmp.H   = rmp.sol[1]
+meMin = minMonetaryEndowment(rmp.sol, w, te1)
+HC    = committedLabour(w, meMin)
+rmp.U = mc.utility(rmp.sol, w, te1)
+rmp.T = totalLabour(rmp.H, HC)
+
+cat("  --- After policy (monetary-compensated) ---", "\n")
+cat("  Target utility =", ump.U, "\n")
+cat("  te: ", te1, "\n")
+cat("  meMin:", meMin, "\n")
+cat("  meMin (% change):", (meMin - me)/abs(me), "\n")
+cat("  meMin - me:", meMin - me, "\n")
+cat("  HC:",  HC, "\n")
+cat("  rmp.H:",  rmp.H, "\n")
+cat("  rmp.T:",  rmp.T, "\n")
+cat("  rmp.T (% change):", (rmp.T - ump.T)/ump.T, "\n")
+cat("  Achieved utility =", rmp.U, "\n")
+cat("  rmp.U (% change):", (rmp.U - ump.U)/ump.U, "\n\n")
+
+# Policy: wage rate-compensated
+me1 = me + 0.1*me 
+te1 = te - 0.1*te
+source("synData9_LSM25_subProcedures02.R")
+
+```
