@@ -27,3 +27,6 @@ if (!require("panelView")) install.packages('panelView')
 
 # Data visualization
 if (!require("ggplot2")) install.packages('ggplot2')
+
+# Nonlinear optimisation
+if (!require("nloptr")) install.packages('nloptr')
