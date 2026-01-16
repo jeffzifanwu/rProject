@@ -28,7 +28,11 @@ library(tidyr)
 
 # Introduction
 
-Some text
+Organised as follows:
+
+-   @sec-stdSetup: Standard MNL model
+
+-   
 
 Some maths:
 
@@ -42,7 +46,7 @@ Some R codes
 1 + 1
 ```
 
-# MNL
+# Standard MNL model {#sec-stdSetup}
 
 Let there be three alternatives $\mathcal{D} = \{0,1,2\}$, available to each individual. We use the subscript $i \in \{0,1,2\}$ to index alternative; and superscript $k \in \{1, \ldots,K \}$ to index predictors and coefficients.
 
@@ -99,9 +103,9 @@ J <- 3
 
 # parameters
 alphaTrue = c(
-  0,   # alpha1, alternative 0
-  1,   # alpha1, alternative 1
-  2,   # alpha1, alternative 2
+  1,   # alpha1, alternative 0
+  2,   # alpha1, alternative 1
+  3,   # alpha1, alternative 2
   0.2, # alpha2, alternative 0
   0.2, # alpha2, alternative 1
   0.2, # alpha2, alternative 2
@@ -129,12 +133,12 @@ df.sim <- df.sim %>%
   mutate(x1 = 1)
   
 # predictor x2 - agent-specific wage rates
-df.agent = df.sim %>%
-  distinct(agent_id) %>%
-  mutate(x2 = rnorm(N, 50, 10))
-
 df.sim = df.sim %>%
-  left_join(df.agent, by = "agent_id")
+  mutate(x2 = case_when(
+    alter_id == 0 ~ rnorm(n(), 50, 10),
+    alter_id == 1 ~ rnorm(n(), 45, 10),
+    alter_id == 2 ~ rnorm(n(), 40, 10)
+  ))
 
 # predictor x3 - alternative-specific full-income (10 £)
 df.sim = df.sim %>%
@@ -173,9 +177,7 @@ df.sim = df.sim %>%
 
 # unobserved utilities (error terms)
 df.sim = df.sim %>%
-  mutate(
-    eps = rgumbel(N*J, loc = 0, scale = 1)
-  )
+  mutate(eps = rgumbel(N*J, loc = 0, scale = 1))
 
 # total indirect utility
 df.sim = df.sim %>%
@@ -231,7 +233,7 @@ ggplot(df.plot, aes(x = choice)) +
   )
 ```
 
-# Estimation
+## Estimation
 
 The probability $y_i = 1$, i.e., choosing the first alternative, is given by:
 
@@ -286,7 +288,31 @@ $$
 nll = - \sum_{n=1}^{N} ll_n
 $$
 
-We estimate the coefficients:
+**Identification**
+
+One of the three intercepts, $\alpha_i^1$, $i = 0,1,2$, is not identifiable. If they all change freely, the probability is not uniquely determined by the parameter values. For example, $\boldsymbol{\alpha}^{1} = (0,1,2)$ and $\boldsymbol{\alpha}^{1'} = (1,2,3)$ yield the same choice probability. We set:
+
+$$
+\begin{align}
+  \beta^{1}_{0} 
+    & = 0
+    \\
+  \beta^{1}_{1} 
+    & = \alpha^{1}_{1} -  \alpha^{1}_{0}
+    \\
+  \beta^{1}_{2}
+    & = \alpha^{1}_{2} -  \alpha^{1}_{0}
+    \\
+  \beta^{2}_i 
+    & = \alpha^{2}_i \ , \ \forall i
+    \\
+  \beta^{3}_i 
+    & = \alpha^{3}_i \ , \ \forall i
+    \\
+\end{align}
+$$
+
+The parameters we will estiamte are: $\beta_{1}^{1}$, $\beta_{2}^{1}$, $\beta_{i}^{2}$, $\forall i$, $\beta_{i}^{3}$, $\forall i$.
 
 ```{r}
 # get predictors dataframe
@@ -321,15 +347,24 @@ mat.y = df.sim %>%
 # Define log-likelihood function
 nll <- function(beta, mat.x, mat.y) {
   
+  # Developer variables
+  # beta = c(0.66, 1.09, 0.12, 0.24)
+  # beta = c(1, 2, 0.2, 0.6)
+  
+  # debug: check mat.x and beta match
+  if (ncol(mat.x) != length(beta) + 5) {
+    stop("Error: 'mat.x' must have one more column than the length of 'beta'.")
+  }
+  
   # predictors for each alternative
   mat.x_0 = mat.x[, grepl("_0", colnames(mat.x))]
   mat.x_1 = mat.x[, grepl("_1", colnames(mat.x))]
   mat.x_2 = mat.x[, grepl("_2", colnames(mat.x))]
   
   # parameters for each alternative
-  beta_0 = beta[c(1,4,7)]
-  beta_1 = beta[c(2,5,8)]
-  beta_2 = beta[c(3,6,9)]
+  beta_0 = c(0, beta[c(3,4)])
+  beta_1 = beta[c(1,3,4)]
+  beta_2 = beta[c(2,3,4)]
   
   # utilities for each alternative
   mat.v_0 = mat.x_0 %*% beta_0
@@ -338,9 +373,9 @@ nll <- function(beta, mat.x, mat.y) {
   mat.v   = cbind(mat.v_0, mat.v_1, mat.v_2)
   
   # calculate probabilities
-  mat.p_0 = exp(mat.v_0) / rowSums(exp(mat.v))
-  mat.p_1 = exp(mat.v_1) / rowSums(exp(mat.v))
-  mat.p_2 = exp(mat.v_2) / rowSums(exp(mat.v))
+  mat.p_0 = exp(mat.v_0) / as.matrix(rowSums(exp(mat.v)))
+  mat.p_1 = exp(mat.v_1) / as.matrix(rowSums(exp(mat.v)))
+  mat.p_2 = exp(mat.v_2) / as.matrix(rowSums(exp(mat.v)))
   mat.p   = cbind(mat.p_0, mat.p_1, mat.p_2)
   
   # calculate log-likelihood
@@ -355,7 +390,14 @@ nll <- function(beta, mat.x, mat.y) {
 }
 
 # Debug checks
-nllCurr = nll(alphaTrue, mat.x, mat.y) # current total negative log-likelihood
+betaTrue = c(
+  1,   # alpha1, alternative 1
+  2,   # alpha1, alternative 2
+  0.2, # alpha2, alternative 0,1,2
+  0.6  # alpha3, alternative 2,1,2
+) # we know this is true
+
+nllCurr = nll(betaTrue, mat.x, mat.y) # current total negative log-likelihood
 if (!isTRUE(all.equal(nllCurr, nllTrue))) {
   stop("Mismatched total negative log-likelihoods.")
 } else {
@@ -367,7 +409,7 @@ if (!isTRUE(all.equal(nllCurr, nllTrue))) {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 # start values
-startValues = rep(0,ncol(mat.x))
+startValues = rep(0,ncol(mat.x)-5)
 
 # Optimise
 opt = optim(
@@ -401,13 +443,353 @@ df.results = data.frame(
   z_score        = mat.zScore,
   p_value        = mat.pValue
 )
+
 print(df.results)
 
 ```
 
+The parameters are recovered.
+
+# Scale parameter is not one {#sec-scaleParam}
+
+In reality, the scale parameter of $\epsilon$ might not be one i.e., $\sigma \neq 1$.
+
+We can only identify:
+
+$$
+\begin{align}
+  \frac{\beta^{1}_{i} }{\sigma}
+    & = \frac{\alpha^{1}_{i}}{\sigma} -  \frac{\alpha^{1}_{0}}{\sigma} \ , \ \forall i =1,2
+    \\
+  \frac{\beta^{2}_i}{\sigma} 
+    & = \frac{\alpha^{2}_i}{\sigma} \ , \ \forall i=0,1,2
+    \\
+  \frac{\beta^{3}_i}{\sigma} 
+    & = \frac{\alpha^{3}_i}{\sigma} \ , \ \forall i=0,1,2
+    \\
+\end{align}
+$$
+
+To demonstrate this, we simulate a dataset with
+
+$$
+\epsilon_{n,i} \overset{i.i.d}{\sim} EV1 (0,2)
+$$
+
+We re-use most parts of the R codes in @sec-stdSetup. The only change is as follows:
+
+`df.sim = df.sim %>% mutate(eps = rgumbel(N*J, loc = 0, scale = 2))`
+
+## Simulation
+
+```{r}
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Specifications
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+# N individuals
+N <- 1000
+
+# J alternatives
+J <- 3 
+
+# parameters
+alphaTrue = c(
+  1,   # alpha1, alternative 0
+  2,   # alpha1, alternative 1
+  3,   # alpha1, alternative 2
+  0.2, # alpha2, alternative 0
+  0.2, # alpha2, alternative 1
+  0.2, # alpha2, alternative 2
+  0.6, # alpha3, alternative 0
+  0.6, # alpha3, alternative 1
+  0.6  # alpha3, alternative 2
+)
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Simulate data
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+# ids
+df.sim = genDimIds(dimSize =  c(N,J), dimName = c(
+  "agent_id",
+  "alter_id"
+  ))
+
+# alter_id starts from 0
+df.sim = df.sim %>%
+  mutate(alter_id = as.integer(alter_id) - 1)
+
+# predictor x1 - intercept
+df.sim <- df.sim %>%
+  mutate(x1 = 1)
+  
+# predictor x2 - agent-specific wage rates
+df.sim = df.sim %>%
+  mutate(x2 = case_when(
+    alter_id == 0 ~ rnorm(n(), 50, 10),
+    alter_id == 1 ~ rnorm(n(), 45, 10),
+    alter_id == 2 ~ rnorm(n(), 40, 10)
+  ))
+
+# predictor x3 - alternative-specific full-income (10 £)
+df.sim = df.sim %>%
+  mutate(x3 = case_when(
+    alter_id == 0 ~ rnorm(n(), 10, 1),
+    alter_id == 1 ~ rnorm(n(), 9, 1),
+    alter_id == 2 ~ rnorm(n(), 8, 1)
+  ))
+
+# parameters
+df.sim = df.sim %>%
+  # alpha1 
+  mutate(alpha1 = case_when(
+      alter_id == 0 ~ alphaTrue[1],
+      alter_id == 1 ~ alphaTrue[2],
+      alter_id == 2 ~ alphaTrue[3]
+  )) %>%
+  # alpha2
+  mutate(alpha2 = case_when(
+      alter_id == 0 ~ alphaTrue[4],
+      alter_id == 1 ~ alphaTrue[5],
+      alter_id == 2 ~ alphaTrue[6]
+  )) %>%
+  # alpha3
+  mutate(alpha3 = case_when(
+      alter_id == 0 ~ alphaTrue[7],
+      alter_id == 1 ~ alphaTrue[8],
+      alter_id == 2 ~ alphaTrue[9]
+  ))
+
+# deterministic indirect utility
+df.sim = df.sim %>%
+  mutate(
+    v = alpha1 + alpha2 * x2 + alpha3 * x3
+  )
+
+# unobserved utilities (error terms)
+df.sim = df.sim %>%
+  mutate(eps = rgumbel(N*J, loc = 0, scale = 2))
+
+# total indirect utility
+df.sim = df.sim %>%
+  mutate(
+    v_total = v + eps
+  )
+
+# choices
+df.sim = df.sim %>%
+  group_by(agent_id) %>%
+  mutate(choice = alter_id[which.max(v_total)]) %>%
+  ungroup()
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Likelihood
+# - These are used for debug checks later
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+# Probability of choices
+df.ll = df.sim %>%
+  group_by(agent_id) %>%
+  # probability
+  mutate(p = exp(v) / sum(exp(v))) %>%
+  # is chosen indiciator
+  mutate(is_chosen = if_else(alter_id == choice, 1, 0)) %>%
+  # log-likelihood
+  mutate(ll = is_chosen * log(p))
+
+# calculate total negative log likelihood
+nllTrue = -sum(df.ll$ll)
+print(paste0("True total negative log-likelihood: ", nllTrue))
+```
+
+## Estimation
+
+```{r}
+# get predictors dataframe
+df.dmat = df.sim %>%
+  select(
+    agent_id,
+    alter_id,
+    x1, x2, x3
+  ) %>%
+  pivot_wider(
+    names_from = alter_id,
+    values_from = c(x1, x2, x3),
+    names_sep = "_"
+  )
+
+# get design matrix
+mat.x = df.dmat %>%
+  select(-agent_id) %>%
+  as.matrix()
+
+# get choice matrix
+mat.y = df.sim %>%
+  distinct(agent_id, choice) %>%
+  select(choice) %>%
+  mutate(y_0 = if_else(choice == 0, 1, 0),
+         y_1 = if_else(choice == 1, 1, 0),
+         y_2 = if_else(choice == 2, 1, 0)
+  ) %>%
+  select(-choice) %>%
+  as.matrix()
+
+# Define log-likelihood function
+nll <- function(beta, mat.x, mat.y) {
+  
+  # Developer variables
+  # beta = c(0.66, 1.09, 0.12, 0.24)
+  # beta = c(1, 2, 0.2, 0.6)
+  
+  # debug: check mat.x and beta match
+  if (ncol(mat.x) != length(beta) + 5) {
+    stop("Error: 'mat.x' must have one more column than the length of 'beta'.")
+  }
+  
+  # predictors for each alternative
+  mat.x_0 = mat.x[, grepl("_0", colnames(mat.x))]
+  mat.x_1 = mat.x[, grepl("_1", colnames(mat.x))]
+  mat.x_2 = mat.x[, grepl("_2", colnames(mat.x))]
+  
+  # parameters for each alternative
+  beta_0 = c(0, beta[c(3,4)])
+  beta_1 = beta[c(1,3,4)]
+  beta_2 = beta[c(2,3,4)]
+  
+  # utilities for each alternative
+  mat.v_0 = mat.x_0 %*% beta_0
+  mat.v_1 = mat.x_1 %*% beta_1
+  mat.v_2 = mat.x_2 %*% beta_2
+  mat.v   = cbind(mat.v_0, mat.v_1, mat.v_2)
+  
+  # calculate probabilities
+  mat.p_0 = exp(mat.v_0) / as.matrix(rowSums(exp(mat.v)))
+  mat.p_1 = exp(mat.v_1) / as.matrix(rowSums(exp(mat.v)))
+  mat.p_2 = exp(mat.v_2) / as.matrix(rowSums(exp(mat.v)))
+  mat.p   = cbind(mat.p_0, mat.p_1, mat.p_2)
+  
+  # calculate log-likelihood
+  mat.ll = mat.y * log(mat.p)
+  
+  # total negative log-likelihood
+  nll = -sum(mat.y * log(mat.p))
+  cat("Total negative log-likelihood:", nll, "\n")
+  
+  return(nll)
+  
+}
+
+# Debug checks
+betaTrue = c(
+  1,   # alpha1, alternative 1
+  2,   # alpha1, alternative 2
+  0.2, # alpha2, alternative 0,1,2
+  0.6  # alpha3, alternative 2,1,2
+) # we know this is true
+
+nllCurr = nll(betaTrue, mat.x, mat.y) # current total negative log-likelihood
+if (!isTRUE(all.equal(nllCurr, nllTrue))) {
+  stop("Mismatched total negative log-likelihoods.")
+} else {
+  cat("total negative log-likelihood:", nllCurr)
+}
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Optimisation
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+# start values
+startValues = rep(0,ncol(mat.x)-5)
+
+# Optimise
+opt = optim(
+  par   = startValues,
+  fn    = nll,
+  mat.x = mat.x,
+  mat.y = mat.y,
+  method = "BFGS",
+  hessian = TRUE
+  )
+
+# point estimates of coefficients
+mat.pe = opt$par
+
+# var-cov matrix
+mat.varCov = solve(opt$hessian)
+
+# standard errors
+mat.se = sqrt(diag(mat.varCov))
+
+# z-scores
+mat.zScore = mat.pe / mat.se
+
+# p-values
+mat.pValue = 2 * (1 - pnorm(abs(mat.zScore)))
+
+# Display results
+df.results = data.frame(
+  point_estimate = mat.pe,   
+  standard_error = mat.se,   
+  z_score        = mat.zScore,
+  p_value        = mat.pValue
+)
+
+print(df.results)
+
+```
+
+As anticipated, we have recovered:
+
+$$
+\begin{align}
+  \frac{\beta^{1}_{i} }{\sigma}
+    &  \ , \ \forall i =1,2
+    \\
+  \frac{\beta^{2}_i}{\sigma} 
+    &  \ , \ \forall i=0,1,2
+    \\
+  \frac{\beta^{3}_i}{\sigma} 
+    &  \ , \ \forall i=0,1,2
+    \\
+\end{align}
+$$
+
+In this numerical experiment, we know $\simga = 2$ because we simulated the dataset. In practice, however, $\sigma$ is unknown. This means that the levels (absolute sizes) of the parameters are not identifiable in general.
+
+# Predictor is not alternative specific
+
+Similar to the intercepts, when one of the predictors is not alternative specific e.g., $x^1_{0} = x^1_{1} = x^1_{2}$, we cannot identify:
+
+$$
+\frac{\beta^{2}_i}{\sigma} \ , \ \forall i=0,1,2
+$$
+
+Only the differences are identifiable. We define:
+
+$$
+\frac{\theta^{2}_i}{\sigma} 
+= \frac{\beta^{2}_i}{\sigma} - \frac{\beta^{2}_0}{\sigma}
+= \frac{\alpha^{2}_i}{\sigma} - \frac{\alpha^{2}_0}{\sigma} \ , \ \forall i=1,2
+$$
+
+We re-use most parts of the R codes from @sec-scaleParam.
 
 # Others
+
 **Utility differences**
+
+Agent specific predictor
+
+```{r}
+df.agent = df.sim %>%
+  distinct(agent_id) %>%
+  mutate(x2 = rnorm(N, 50, 10))
+
+df.sim = df.sim %>%
+  left_join(df.agent, by = "agent_id")
+```
 
 $$
 \begin{align}
