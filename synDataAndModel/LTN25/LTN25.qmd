@@ -1,0 +1,26 @@
+---
+title: "LTN25"
+author: "Jeff Wu"
+format:
+  html:
+    embed-resources: true
+  pdf:
+    documentclass: scrreprt
+---
+
+# Causal Mechanisms
+
+The conceptulised causal mechanism by which low-traffic neighbourhoods (LTNs) affect traffic counts and air pollution are illustrated through the directed acyclic graph (DAG) in Figure \@ref(fig-causalMechanism).
+
+![Causal mechanism](figures/causalMechanism){#fig-causalMechanism width=80%}
+
+
+# Potential Outcomes and Causal Estimands
+
+Let $TC^{s}_{i,t}$ denote the traffic counts in neighbourhood $i$ at time $t$ under treatment status $s \in \{0,1\}$, where $s=1$ indicates the presence of a low-traffic neighbourhood intervention and $s=0$ indicates its absence. Thus, $TC^{1}_{i,t}$ represents the potential traffic counts for neighbourhood $i$ at time $t$ if a low-traffic neighbourhood intervention is implemented, while $TC^{0}_{i,t}$ represents the potential traffic counts if no such intervention is in place. 
+
+One causal estimand that defines the causal effect of LTNs on traffic counts is the average treatment effect (ATE):
+$$ ATE = E[TC^{1}_{i,t} - TC^{0}_{i,t}] $$
+where the expectation, $E[\cdot]$, is taken over all neighbourhoods and time periods.
+
+As far as this policy context is concerned, 
