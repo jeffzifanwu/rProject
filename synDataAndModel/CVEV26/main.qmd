@@ -1,0 +1,48 @@
+---
+title: "Event "
+author: "Jeff Wu"
+format: html
+editor: visual
+number-sections: true
+number-depth: 3
+---
+
+```{r}
+#| echo: false
+#| output: false
+
+# Housekeeping
+source("https://raw.githubusercontent.com/jeffzifanwu/rProject/main/procedures/beginScript.R")
+
+# load library
+library(dplyr)
+library(dataHelper)
+```
+
+------------------------------------------------------------------------
+
+# Introduction
+
+Some text
+
+Some maths:
+
+$$
+y = \beta x
+$$
+
+Some R codes
+
+```{r}
+1 + 1
+```
+
+------------------------------------------------------------------------
+
+```{r}
+#| echo: false
+#| output: false
+
+# Clean up
+source("https://raw.githubusercontent.com/jeffzifanwu/rProject/main/procedures/endScript.R")
+```
