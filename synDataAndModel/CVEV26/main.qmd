@@ -23,19 +23,114 @@ library(dataHelper)
 
 # Introduction
 
-Some text
+# Definition
 
-Some maths:
+**Compensating Variation (CV)** is the amount of money that must be taken from (or given to) a consumer *after* a price change to return them to their original utility level. It answers: "How much would you need to be compensated to be as well off as before?" A positive CV for a price increase indicates a welfare loss equal to that amount.
 
-$$
-y = \beta x
-$$
+$$CV = e(p^1, u^0) - e(p^0, u^0)$$
 
-Some R codes
+where $e(p, u)$ is the expenditure function, $p^0$ and $p^1$ are the original and new price vectors, and $u^0$ is the original utility level.
+
+**Equivalent Variation (EV)** is the amount of money that must be taken from (or given to) a consumer *before* a price change to leave them at the same utility level as after the change. It answers: "How much money would be equivalent to the price change?" It uses the new prices as the reference point, whereas CV uses the old prices.
+
+$$EV = e(p^1, u^1) - e(p^0, u^1)$$
+
+where $u^1$ is the post-change utility level.
+
+The key distinction is the reference utility level: CV holds utility constant at the *pre-change* level $u^0$, while EV holds it constant at the *post-change* level $u^1$.
+
+# Numerical Example
+
+Suppose the consumer has a Cobb-Douglas utility function with equal expenditure shares:
+
+$$U(x_1, x_2) = x_1^{0.5} \, x_2^{0.5}$$
+
+with income $m = 100$. The corresponding Marshallian demand functions are:
+
+$$x_1 = \frac{m}{2p_1}, \qquad x_2 = \frac{m}{2p_2}$$
+
+and the expenditure function is:
+
+$$e(p_1, p_2, u) = 2u\sqrt{p_1 p_2}$$
+
+**Scenario:** $p_1$ rises from 1 to 2 while $p_2 = 1$ stays fixed.
 
 ```{r}
-1 + 1
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Parameters
+# - - - - - - - -  - - - - - - - -  - - - - - - - -
+
+# Preferences
+alpha <- 0.5
+
+# Income
+m     <- 100
+
+# Prices
+p1_0 <- 1;  p2_0 <- 1   # original prices
+p1_1 <- 2;  p2_1 <- 1   # new prices (p1 doubles)
+
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Functions
+# - - - - - - - -  - - - - - - - -  - - - - - - - -
+
+# Marshallian demand functions
+demand_x1 <- function(p1, m, a = alpha) a * m / p1
+demand_x2 <- function(p2, m, a = alpha) (1 - a) * m / p2
+
+# Cobb-Douglas utility function
+utility <- function(x1, x2, a = alpha) x1^a * x2^(1 - a)
+
+# Expenditure function
+exp_fn <- function(p1, p2, u, a = alpha) {
+  u * (p1 / a)^a * (p2 / (1 - a))^(1 - a)
+}
+
 ```
+
+```{r}
+# Original optimal demands and utility
+x1_0 <- demand_x1(p1_0, m)
+x2_0 <- demand_x2(p2_0, m)
+u0   <- utility(x1_0, x2_0)
+
+cat("Original demands: x1 =", x1_0, ", x2 =", x2_0, "\n")
+cat("Original utility: u0 =", u0, "\n\n")
+
+# New optimal demands and utility at new prices
+x1_1 <- demand_x1(p1_1, m)
+x2_1 <- demand_x2(p2_1, m)
+u1   <- utility(x1_1, x2_1)
+
+cat("New demands:      x1 =", x1_1, ", x2 =", x2_1, "\n")
+cat("New utility:      u1 =", round(u1, 4), "\n\n")
+
+# Expenditure (i.e., income) required to achieve original utility at new prices
+exp_newPrices_oldUtil <- exp_fn(p1_1, p2_1, u0)
+exp_oldPrices_oldUtil <- exp_fn(p1_0, p2_0, u0) # this should equal to the original income level
+exp_newPrices_newUtil <- exp_fn(p1_1, p2_1, u1) # this should equal to the original income level
+exp_oldPrices_newUtil <- exp_fn(p1_0, p2_0, u1)
+
+cat("Expenditure to achieve u0 at new prices: ", round(exp_newPrices_oldUtil, 2), "\n")
+cat("Expenditure to achieve u0 at old prices: ", round(exp_oldPrices_oldUtil, 2), "\n")
+cat("Expenditure to achieve u1 at new prices: ", round(exp_newPrices_newUtil, 2), "\n")
+cat("Expenditure to achieve u1 at old prices: ", round(exp_oldPrices_newUtil, 2), "\n\n")
+
+# CV = e(p1, u0) - e(p0, u0)  — compensate back to original utility
+CV <- exp_newPrices_oldUtil - exp_oldPrices_oldUtil
+cat("CV =", round(CV, 2), "\n")
+
+# EV = e(p1, u1) - e(p0, u1)  — equivalent lump sum at original prices
+EV <- exp_newPrices_newUtil - exp_oldPrices_newUtil
+cat("EV =", round(EV, 2), "\n")
+```
+
+**Interpretation:**
+
+-   **CV** $\approx$ 41.42: after $p_1$ doubles, the consumer needs \$41.42 in additional income to be restored to their original utility $u^0 = 50$.
+-   **EV** $\approx$ 29.29: a lump-sum reduction of \$29.29 at the *original* prices would leave the consumer equally as badly off as the price increase. This is the equivalent money-metric welfare loss.
+
+CV \> EV here because CV is evaluated at the higher (new) prices, making it more expensive to reach $u^0$.
 
 ------------------------------------------------------------------------
 
