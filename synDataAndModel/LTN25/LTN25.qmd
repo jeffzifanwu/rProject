@@ -1,5 +1,5 @@
 ---
-title: "LTN25"
+title: "Online Appendix: Low Traffic Neighbourhoods"
 author: "Jeff Wu"
 format:
   html:
@@ -8,19 +8,298 @@ format:
     documentclass: scrreprt
 ---
 
-# Causal Mechanisms
+# Theoretical Framework
 
-The conceptulised causal mechanism by which low-traffic neighbourhoods (LTNs) affect traffic counts and air pollution are illustrated through the directed acyclic graph (DAG) in Figure \@ref(fig-causalMechanism).
+The hypothesised causal mechanism by which low-traffic neighbourhoods (LTN) affect traffic counts (TC) and air pollution (AP) in various areas of a neighbourhood -- Internal area (INT), Inner Boundary area (IBD), and Outer Boundary area (OBD) -- are illustrated through the directed acyclic graph in @fig-causalMechanism. For clarity, we, we suppress the potential confounding variables in this graph and focus on the main causal pathways of interest.
 
-![Causal mechanism](figures/causalMechanism){#fig-causalMechanism width=80%}
+![Causal mechanism of LTNs on traffic counts and air pollution](figures/causalMechanism.svg){#fig-causalMechanism width="80%"}
+
+```{=latex}
+% --------------------------------------------
+% Latex TikZ Code (do not render this block)
+
+\begin{tikzpicture}[
+    % node distance=2.8cm and 2.5cm,
+    % every node/.style={font=\Large},
+    arrow/.style={->, thick}
+]
+
+% Top row
+\node (LTN) {$\mathrm{LTN}$};
+
+% Middle row
+\node (TCINT) [below=of LTN]  {$TC^{INT}$};
+\node (TCIBD) [right=of TCINT] {$TC^{IBD}$};
+\node (TCOBD) [right=of TCIBD] {$TC^{OBD}$};
+
+% Bottom row
+\node (APINT) [below=of TCINT] {$AP^{INT}$};
+\node (APIBD) [below=of TCIBD] {$AP^{IBD}$};
+\node (APOBD) [below=of TCOBD] {$AP^{OBD}$};
+
+% Horizontal arrows
+\draw[arrow] (TCINT) -- (TCIBD);
+
+% Vertical arrows
+\draw[arrow] (LTN) -- (TCINT);
+\draw[arrow] (TCINT) -- (APINT);
+\draw[arrow] (TCIBD) -- (APIBD);
+\draw[arrow] (TCOBD) -- (APOBD);
+
+% Diagonal arrows
+\draw[arrow] (TCINT) -- (APIBD);
+\draw[arrow] (TCOBD) -- (APIBD);
+\draw[arrow] (TCIBD) -- (APINT);
+\draw[arrow] (TCIBD) -- (APOBD);
+
+% Curved arrow
+\draw[arrow] (TCINT) to[out=30, in=150, looseness=1.1] (TCOBD);
+
+\end{tikzpicture}
+
+% --------------------------------------------
+```
+
+Whilst most parts of the graph are straightforward, two aspects warrant further remarks. First, the causal pathway, $LTN \rightarrow TC^{INT} \rightarrow TC^{OBD}$, reflects a central policy concern when implementing LTNs: the pass-through traffic that would have traversed the neighbourhood is rerouted to the outer boundary roads. This rerouting mechanism, when present, compromises the intended benefits of LTNs.
+
+Second, there are multiple causal pathways leading to air pollution for each area reflecting the spatial spillover effects of pollutants. For instance, air pollution in the inner boundary area ($AP^{IBD}$) is influenced by not only local traffic counts ($TC^{IBD}$) but also by traffic volumes in adjacent areas ($TC^{INT}$, $TC^{OBD}$). Crucially, if rerouting occurs, we anticipate that the negative effect on $AP^{IBD}$ via $TC^{OBD}$ would offset the positive effects via $TC^{INT}$ and $TC^{IBD}$. This spillover mechanism may generate a gradient of air quality outcomes -- largest improvements near the internal area, diminishing toward the outer boundary, where gains may be limited or negative -- further highlighting the uneven geographic distribution of LTN benefits and burdens.
+
+# Hypothesis
+
+This section formalises eight statistically testable hypotheses corresponding to the causal mechanism presented in @fig-causalMechanism. Let $Y_{n,t} (s)$ denote the outcome variable of interest, or some monotonic transformation of it, in neighbourhood $n$ at time $t$ under treatment status $s$, where $s=1$ indicates the presence of a low-traffic neighbourhood intervention and $s=0$ indicates its absence. The outcome variable $Y$ can denote traffic counts or air pollution in different areas of a neighbourhood, i.e., $Y \in \{TC^{INT}, TC^{IBD}, TC^{OBD}, AP^{INT}, AP^{IBD}, AP^{OBD}\}$. Let $LTN_{n,t}$ be a binary variable where $LTN_{n,t} = 1$ denotes neighbourhood $n$ being selected for LTN intervention at time $t$ and $LTN_{n,t} = 0$ otherwise.
+
+The average causal effect of LTN intervention on outcome variable $Y$ in neighbourhoods selected for LTN implementation (i.e., the average treatment effect on the treated or ATT in the potential outcomes framework) is defined as:
+
+$$ ATT_{Y} = E[Y_{n,t} (1) - Y_{n,t}(0) | LTN_{n,t} = 1] $$ {#eq-hypo:att}
+
+The first to sixth null hypotheses are defined in terms of these ATTs:
+
+$$ H^{ATT}_{0, Y}: ATT_{Y} = 0 $$ 
+
+Rejecting $H^{ATT}_{0, Y}$ imply that LTNs have a causal effect on outcome variable $Y$ among the neighbourhoods selected for LTN intervention. 
+
+Provided that LTN has a causal effect on traffic counts in the internal area (i.e., we reject $H^{ATT}_{0, Y}$ for $Y = TC^{INT}$), we investigate how this effect propagates to traffic counts in the inner and outer boundary area of a neighbourhood. The average treatment effect of LTN-induced changes in traffic counts in the internal area on traffic counts in the inner and outer boundary areas (i.e., the local average treatment effect or LATE in the potential outcomes framework) are defined as:
+
+$$ 
+LATE^{k}_{TC}
+= E[\frac
+  {TC^{k}_{n,t} (TC^{INT}_{n,t}(1)) - TC^{k}_{n,t} (TC^{INT}_{n,t}(0))} 
+  {TC^{INT}_{n,t} (1) - TC^{INT}_{n,t} (0)}
+| Complier ]
+  \ , \ k \in \{IBD, OBD\}
+$$ {#eq-hypo:late}
+
+where "Complier" denotes neighbourhoods whose internal area traffic counts respond to LTN intervention, formally defined as:
+
+$$ Complier := TC^{INT}_{n,t} (1) < TC^{INT}_{n,t} (0) $$
+
+The seventh and eighth null hypotheses are defined in terms of these LATEs:
+
+$$ H^{k}_{0, TC}: LATE^{k}_{TC} = 0 \ , \ k \in \{IBD, OBD\} $$
+
+Rejecting $H^{IBD}_{0, TC}$ would imply that LTNs have a causal effect on traffic counts in the inner boundary area through their effect on traffic counts in the internal area among the neighbourhoods whose traffic counts in the internal area respond to LTN intervention, i.e., the precense of the causal pathway $LTN \rightarrow TC^{INT} \rightarrow TC^{IBD}$. Similarly, rejecting $H^{OBD}_{0, TC}$ would have the same implication for the causal pathway $LTN \rightarrow TC^{INT} \rightarrow TC^{OBD}$.
+
+The causal pathways from LTNs to air pollution through traffic count changes are not testable because of temporal resolution constraints in our air pollution data. While traffic count data provides daily observations for the first weeks in November 2021 and 2023 respectively, air pollution measurements are aggregated to monthly averages, preventing the fine-grained temporal analysis required for mediation analysis. Therefore, we do not formalise hypotheses for these causal pathways.
+
+# Identification Strategy
+
+In our data, the neighbourhoods assigned to LTN intervention are those that became permanent low-traffic neighbourhoods in Haringey after the trial. In other words, treatment assignment was not random and our data is essentially observational. The standard identification strategies for identifying ATT causal parameters from observational data include: synthetic control, matching, and difference-in-differences. Synthetic control is most effective when there are few treated units and many control units. However, our traffic data, in particular, presents the opposite scenario -- many treated neighbourhoods and only one control neighbourhood. This immediately rules out synthetic control as a viable identification strategy. Matching also relies on the presence of many control units though to a lesser extent than synthetic control. More critically, matching assumes that treatment assignment is independent of potential outcomes conditional on observed covariates (i.e., unconfoundedness). This assumption is implausible in our context given the limited number of available covariates in our dataset. 
+
+Difference-in-differences emerges as our choice of identification strategy in this context. The key identification assumption underlying this strategy is parallel trends: in the absence of LTN intervention, the temporal trends of outcome variable conditional on observed covariates would be the same between the neighbourhoods selected for LTN intervention and those not selected. Let $t0$ and $t1$ denote time points before and after LTN intervention respectively, the parallel trends assumption is formally expressed as:
+
+$$ E[Y_{n,t0}(0) - Y_{n,t1}(0) | X_{n,t}, LTN_{n} = 1] = E[Y_{n,t0}(0) - Y_{n,t1}(0) | X_{n,t}, LTN_{n} = 0] $$ {#eq-parallelTrends}
+
+where $X_{n,t}$ denotes the covariates for neighbourhood $n$ at time $t$.
+
+It is acknowledged that the parallel trends assumption is fundamentally untestable as the second term on the left-hand side of @eq-parallelTrends, $Y_{n,t1}(0) | X_{n,t}, LTN_{n} = 1$, is an unobserved potential outcome. However, the assumption remains plausible in this study for three reasons. First, control sites were carefully selected by transport planners at Haringey Council to facilitate direct and meaningful comparisons. Planners managed concurrent transport policies specifically to prevent contamination of the monitoring sites during the study period. Second, Haringey is an established urban area. The differences in traffic counts and air pollution levels between different neighbourhoods are expected to be relatively stable over time in the absence of major interventions like LTNs. Third, we provide empirical support for this assumption by testing for parallel trends in the pre-intervention period and cannot reject the null hypothesis of pre-intervention parallel trends (see Appendix). 
+
+The difference-in-differences parameter is given by:
+
+$$ DD_{Y} = E[Y_{n,t1} - Y_{n,t0} | X_{n,t}, LTN_{n} = 1] - E[Y_{n,t1} - Y_{n,t0} | X_{n,t}, LTN_{n} = 0] $$
+
+This expression equals that of $ATT_{Y}$ (see @eq-hypo:att) under the parallel trends assumption but does not involve any unobserved potential outcomes. Thus, $DD_{Y}$ identifies $ATT_{Y}$ under parallel trends.
+
+# Estimation Method
+
+We use regression to estimate the difference-in-differences parameter. Specifically, we consider the following regression model:
+
+$$ Y_{i,t} = \alpha_{i} + \beta_{t} + \theta_{n} + \eta_{a} + \sum_{a \in \{INT, IBD, OBD\}} \delta_{a} (LTN_{n} \cdot POST_{t} \cdot AREA_{a}) + \gamma X_{i,t} + \epsilon_{i,t} $$
+
+where 
+$Y_{i,n,t}$ is the Box-Cox transformed outcome variable (traffic counts or air pollution) measured by sensor $i$ in neighbourhood $n$ at time $t$;
+$\alpha_{i}$, $\beta_{t}$, $\theta_{n}$, $\eta_{a}$ represent the sensor, neighbourhood, time, and area fixed effect, respectively; 
+LTN_{n}$ is a binary indicator equals to one if neighbourhood $n$ is selected for LTN intervention and zero otherwise; 
+$POST_{t}$ is a binary indicator equal to 1 if time $t$ is in the post-intervention period and 0 otherwise; 
+$X_{i,t}$ denotes all other covariates; and 
+$\epsilon_{i,t}$ is the error term. 
+
+When the first treatment period is the same for all treated units -- as is the case in our data -- the regression parameters $\delta_{a}$ for $a \in \{INT, IBD, OBD\}$ -- the regression parameter $\delta_{a}$ for area $a$ equals to the difference-in-differences parameter. Thus, under the parallel trends assumption,
+
+$$ ATT_{Y}^{a} \equiv \DD^{a}_{Y} \equiv \delta^{a}_{Y} $$ 
+
+where $ATT_{Y}^{a}$ denotes the average treatment effect on the treated for outcome variable $Y$ in area $a$.
+
+We estimate all regression models using weighted least squares (WLS), where the weight for each observation is defined as:
+$$ w_{i,n,t} = \frac{1}{N_n} $$
+where $N_n$ is the total number of sensors in neighbourhood $n$. This weighting scheme ensures that each neighbourhood contributes equally to the estimation, preventing neighbourhoods with more sensors from dominating the results. 
+
+We account for within-cluster correlation in the error terms by computing cluster-robust standard errors, where clusters are defined at the neighbourhood level. This clustering structure is appropriate because: (1) sensors within the same neighbourhood are likely to be subject to common unobserved shocks; (2) measurements from the same neighbourhood across different time periods are very likely to be correlated. Ignoring this clustering structure may lead to underestimated standard errors and inflated Type I error rates.
 
 
-# Potential Outcomes and Causal Estimands
 
-Let $TC^{s}_{i,t}$ denote the traffic counts in neighbourhood $i$ at time $t$ under treatment status $s \in \{0,1\}$, where $s=1$ indicates the presence of a low-traffic neighbourhood intervention and $s=0$ indicates its absence. Thus, $TC^{1}_{i,t}$ represents the potential traffic counts for neighbourhood $i$ at time $t$ if a low-traffic neighbourhood intervention is implemented, while $TC^{0}_{i,t}$ represents the potential traffic counts if no such intervention is in place. 
 
-One causal estimand that defines the causal effect of LTNs on traffic counts is the average treatment effect (ATE):
-$$ ATE = E[TC^{1}_{i,t} - TC^{0}_{i,t}] $$
-where the expectation, $E[\cdot]$, is taken over all neighbourhoods and time periods.
 
-As far as this policy context is concerned, 
+
+
+
+
+$$ ATT_{Y} = E[Y_{i,n,t1} (1) | X_{i,n,t}, LTN_{n,t} = 1] - E[Y_{i,n,t0} (0) | X_{i,n,t}, LTN_{n,t} = 1] $$ 
+
+where all terms on the right-hand side are again observable in our data.
+
+
+In this section, we formalise six testable statistical hypotheses corresponding to the causal mechanism presented in @fig-causalMechanism. It appears that not all the causal pathways in the graph can be tested with our available data. In serveral instances, we can only test the overall causal effect but cannot disentangle specific causal pathways.
+
+## Traffic Counts in Internal Area
+
+Let $TC^{INT}_{i,n,t} (s)$ denote the traffic counts recorded by sensor $i$ in neighbourhood $n$ at time $t$ under treatment status $s$, where $s=1$ indicates the presence of a low-traffic neighbourhood intervention and $s=0$ indicates its absence. The average treatment effect of LTN intervention on traffic counts in the internal areas of neighbourhoods selected for LTN implementation (i.e., the average treatment effect on the treated, ATT) is defined as:
+
+$$ ATT^{INT}_{TC} = E[TC^{INT}_{i,n,t}(1) - TC^{INT}_{i,n,t}(0) | LTN_{n,t} = 1] $$ {#eq-attTcInt}
+
+where $LTN_{i,n,t}$ is a binary variable where $LTN_{n,t} = 1$ denotes neighbourhood $n$ being selected for LTN intervention at time $t$ and $LTN_{n,t} = 0$ otherwise.
+
+Our first null hypothesis that the causal pathway $LTN \rightarrow TC^{INT}$ does not exist is defined in terms of this ATT:
+
+$$ H^{INT}_{0,TC}: ATT^{INT}_{TC} = 0 $$
+
+In other words, rejecting this null hypothesis would imply that LTNs have a causal effect on traffic counts in the internal area among the neighbourhoods selected for LTN intervention.
+
+## Traffic Counts in Inner and Outer Boundary Areas
+
+Provided that LTN has a causal effect on traffic counts in the internal area (i.e., we reject $H^{INT}_{0, TC}$), we investigate how this effect propagates to traffic counts in the inner boundary area (IBD) and outer boundary area (OBD) of a neighbourhood. The average treatment effect of LTN-induced changes in $TC^{INT}$ on traffic counts in the inner and outer boundary areas (i.e., the local average treatment effect, LATE) are defined as:
+
+$$ 
+LATE^{k}_{TC} 
+= E[\frac
+  {TC^{k}_{i,n,t} (TC^{INT}(1)) - TC^{k}_{i,n,t} (TC^{INT}(0))} 
+  {TC^{INT}_{i,n,t} (1) - TC^{INT}_{i,n,t} (0)} 
+| Complier ]
+  \quad \forall k \in \{IBD, OBD\}
+$$
+where "Complier" denotes neighbourhoods whose internal area traffic counts respond to LTN intervention, formally defined as:
+
+$$ Complier := TC^{INT}_{i,n,t} (1) < TC^{INT}_{i,n,t} (0) $$
+
+Our second and third null hypotheses are defined in terms of these LATEs:
+
+$$ H^{k}_{0, TC}: LATE^{k}_{TC} = 0 \quad \forall k \in \{IBD, OBD\} $$
+
+Rejecting $H^{IBD}_{0, TC}$ would imply that LTNs have a causal effect on traffic counts in the inner boundary area through their effect on traffic counts in the internal area among the neighbourhoods whose traffic counts in the internal area respond to LTN intervention, i.e., the precense of the causal pathway $LTN \rightarrow TC^{INT} \rightarrow TC^{IBD}$. Similarly, rejecting $H^{OBD}_{0, TC}$ would have the same implication for the causal pathway $LTN \rightarrow TC^{INT} \rightarrow TC^{OBD}$.
+
+## Air Pollution in all Areas
+
+Our theoretical framework posits multiple causal pathways from LTNs to air pollution through traffic count changes (as illustrated in @fig-causalMechanism). However, temporal resolution constraints in our air pollution data preclude testing these specific mediation pathways. While traffic count data provides daily observations for the first weeks in November 2021 and 2023 respectively, air pollution measurements are aggregated to monthly averages, preventing the fine-grained temporal analysis required for mediation analysis.
+
+Given these constraints, we focus on estimating the total causal effect of LTN intervention on air pollution across all three spatial areas. This approach captures the net impact of all causal pathways combined, including both direct effects and spillover mechanisms. The average treatment effect of LTN intervention on air pollution in area $k$ of neighbourhoods selected for LTN implementation (i.e., the average treatment effect on the treated, ATT) is given by:
+
+$$ ATT^{k}_{AP} = E[AP^{k}_{j,n,t}(1) - AP^{k}_{j,n,t}(0) | LTN_{n,t} = 1] \quad \forall k \in \{INT, IBD, OBD\} $$ {#eq-attApk}
+
+where the subscript $j$ indexes the air pollution sensors; the other subscripts are as previously defined.
+
+Our fourth, fifth, and sixth null hypotheses are defined in terms of these ATTs:
+
+$$ H^{k}_{0,AP}: ATT^{k}_{AP} = 0 \quad \forall k \in \{INT, IBD, OBD\} $$ 
+
+Rejecting $H^{k}_{0, AP}$ would imply that LTNs have a causal effect on air pollution in area $k$ among the neighbourhoods selected for LTN intervention. However, we do not disentangle the specific causal pathways from LTNs to air pollution. The estimands $ATT^{k}_{AP}$ represent the net impact of all causal pathways combined.
+
+# Identification Strategies and Estimation Methods
+
+In our data, the neighbourhoods assigned to LTN intervention are those that become permanent low-traffic neighbourhoods after the trial. In other words, treatment assignment is not random; and it poses challenges for identifying the causal estimands defined in the previous section. In this section, we discuss our identification strategies and estimation methods for these causal estimands.
+
+## Average Treatment Effect on the Treated (ATT)
+
+For notational convenience, we use $Y$ to denote $TC$^{INT}$ or $AP^{k}$, for $k \in \{INT, IBD, OBD\}$. Due to the absence of randomised treatment assignment, $Y_{i,n,t}(0) | LTN_{n,t} = 1$, i.e., the second terms in @eq-attTcInt and @eq-attApk, are potential outcomes unobserved in our data. Standard identification strategies for identifying ATT from observational data include: matching, synthetic control, and difference-in-differences. The former two are most effective when there are few treated units and many control units. However, our traffic data presents the opposite scenario -- many treated neighbourhoods and only one control neighbourhood -- and the air pollution data has a balanced treatment-control ratio. Therefore, the difference-in-differences appears to the most appropriate strategy to identify the ATTs.
+
+The key identification assumption for this identification strategy is parrallel trends: in the absence of LTN intervention, the temporal trends of $Y$ would be the same between the neighbourhoods selected for LTN intervention and those not selected. Formally, for any two time points, $t0$ (before LTN intervention) and $t1$ (after LTN intervention), the parallel trends assumption is given by:
+
+$$ E[Y_{i,n,t0}(0) - Y_{i,n,t1}(0) | LTN_{n,t} = 1] = E[Y_{i,n,t0}(0) - Y_{i,n,t1}(0) | LTN_{n,t} = 0] $$ 
+
+The difference-in-differences strategy postulates that, under the parallel trends assumption, the ATT can be identified as:
+
+$$ ATT_{Y} = E[Y_{i,n,t1} (1) | LTN_{n,t} = 1] - E[Y_{i,n,t0} (0) | LTN_{n,t} = 1] $$
+
+where the first expectation operator is taken over all treated neighbourhoods after LTN intervention, and the second expectation operator is taken over all treated neighbourhoods before LTN intervention. Now, all terms on the right-hand side are observable in our data.
+
+The parallel trends assumption is plausible in our context because Haringey is a mature urban area. It plausible that the differences in traffic counts and air pollution levels between different neighbourhoods are relatively stable over time in the absence of major interventions like LTNs. To enhance the credibility of this assumption, we include various covariates in our statistical models to control for potential confounding factors that may affect the trends of traffic counts and air pollution. The conditional parallel trends assumption is more plausible than the unconditional version:
+
+$$ E[Y_{i,n,t0}(0) - Y_{i,n,t1}(0) | X_{i,n,t}, LTN_{n,t} = 1] = E[Y_{i,n,t0}(0) - Y_{i,n,t1}(0) | X_{i,n,t}, LTN_{n,t} = 0] $$ 
+
+where $X_{i,n,t}$ denotes the covariates for sensor $i$ in neighbourhood $n$ at time $t$. The ATT can then be identified as:
+
+$$ ATT_{Y} = E[Y_{i,n,t1} (1) | X_{i,n,t}, LTN_{n,t} = 1] - E[Y_{i,n,t0} (0) | X_{i,n,t}, LTN_{n,t} = 1] $$ 
+
+where all terms on the right-hand side are again observable in our data.
+
+Finally, we test the parallel trends assumption using pre-intervention data. Specifically, let $t0$ and $t0'$ be two time points before LTN intervention. We test the following null hypothesis:
+
+$$ H^{PT}_{0,PT}: E[Y_{i,n,t0}(0) - Y_{i,n,t0'}(0) | X_{i,n,t}, LTN_{n,t} = 1] = E[Y_{i,n,t0}(0) - Y_{i,n,t0'}(0) | X_{i,n,t}, LTN_{n,t} = 0] , Y \in \{TC^{INT}, AP^{INT}, AP^{IBD} , AP^{OBD}\}$$
+
+If we reject this null hypothesis, we have evidence that the treated and untreated neighbourhoods have different temporal trends before LTN intervention, casting doubt against the parallel trends assumption. However, we cannot accept this null hypothesis (see appendix), so we do not have any evidence against the parallel trends assumption.
+
+We can conveniently estiamte ATT_{Y} by fitting a regression model with an interaction term between treatment status and time period to our data. The additional regression assumptions that we need to accomodate are error term independence and normality. The latter assumption is required because we do not have a large sample size; the standard error estimates may be unreliable without normality and hence jeapardise statistical inference (hypothesis testing). We apply box-cox transformations and clustered-robust standard errors to mitigate these concerns. Particularly, the transformation of outcome variables helps to improve normality, while the clustered-robust standard errors help to mitigate error term dependence within clusters (sensors within the same neighbourhood).  
+
+
+
+
+
+
+the selection of neighbourhoods for LTN intervention in this data is not random. In the absence of randomisation, the second term in @eq-attTcInt, $TC^{INT}_{i,n,t}(s=0)|X_{i,n,t}, LTN_{n,t} = 1$, is an unobserved potential outcome.  
+
+The common identification strategies for ATT from observational data like our data include matching, synthetic control, and difference-in-differences. The former two are only effective when there are few treated units and many control units. However, in this study, there are many treated units and few control units -- only one neighbourhood which does not implement LTNs. Therefore, we adopt the difference-in-differences approach to identify the $ATT^{IBD}_{TC}$.
+
+
+This section formalises the statistical hypotheses corresponding to the causal pathways illustrated in the previous section and develop identification strategies. We use the potential outcomes notation to define the hypotheses. Let neighbourhoods be indexed by $n = 1, 2, \ldots, N$ and time periods be indexed by $t = 1, 2, \ldots, T$. Note that each neighbourhood may have multiple traffic count sensors and air pollution monitors located in different areas (INT, IBD, OBD). For simplicity, we suppress the site index in the notation of this section. We will return to this point when specifying the statistical models in later sections. Let $s$ denote the treatment status, where $s=1$ indicates the presence of a low-traffic neighbourhood intervention and $s=0$ indicates its absence. For example,  $TC^{IBD}_{n,t}(1)$ represents the potential traffic counts for the internal boundary area of neighbourhood $n$ at time $t$ if a low-traffic neighbourhood intervention is implemented, while $TC^{IBD}_{n,t}(0)$ represents the potential traffic counts if no such intervention is in place.
+
+  ## Traffic Counts in Inner Boundary Area
+
+The first causal pathway of interest is the effect of LTNs on traffic counts in the inner boundary area (IBD) of a neighbourhood. This effect is defined by the average treatment effect on treated (ATT):
+$$ ATT^{IBD}_{TC} = E[TC^{IBD}_{n,t}(s=1) - TC^{IBD}_{n,t}(s=0) | X, LTN = 1] $$ 
+where the expectation, $E[\cdot]$, is taken over all neighbourhoods and time periods. The NULL hypothesis is that LTNs have no effect on traffic counts in the inner boundary area: $$ H^{IBD}_{0, TC}: ATT^{IBD}_{TC} = 0 $$ 
+
+
+
+The common identification strategies for ATT for observational data like what we have include matching, synthetic control, and difference-in-differences. The former two are only effective when there are few treated units and many control units. However, in this study, there are many treated units and few control units -- only one neighbourhood which does not implement LTNs. Therefore, we adopt the difference-in-differences approach to identify the $ATT^{IBD}_{TC}$.
+
+## Traffic Counts in Internal Area
+
+Provided that LTN has a causal effect on traffic counts in the inner boundary area (i.e., we reject $H^{IBD}_{0, TC}$), we can further investigate the effect of LTNs on traffic counts in the internal area (INT) of a neighbourhood. This effect is defined by the local average treatment effect (LATE):
+
+$$ 
+LATE^{INT}_{TC} = E[\frac
+  {TC^{INT}_{n,t} (TC^{IBD}(LTN=1)) - TC^{INT}_{n,t} (TC^{IBD}(LTN=0))} 
+  {TC^{IBD}_{n,t} (LTN=1) - TC^{IBD}_{n,t} (LTN=0)} 
+  | TC^{IBD}_{n,t} (LTN=1) < TC^{IBD}_{n,t} (LTN=0) ]
+  $$ 
+where the expectation, $E[\cdot]$, is taken over all neighbourhoods and time periods. The NULL hypothesis is that changes in the traffic counts in inner boundary area, induced by LTNs, have no effect on traffic counts in the internal area: $$ H^{INT}_{0, TC}: LATE^{INT}_{TC} = 0 $$. Note that $H^{INT}_{0, TC}$ is a hypothesis of both causal effect of LTNs on $TC^{IBD}$ and the causal pathway from $LTN_{n,t}$ to $TC^{INT}_{n,t}$ through $TC^{IBD}_{n,t}$.
+
+## Traffic Counts in Outer Boundary Area
+
+Provided that LTN has a causal effect on traffic counts in the inner boundary area (i.e., we reject $H^{IBD}_{0, TC}$), we can further investigate the effect of LTNs on traffic counts in the outer boundary area (OBD) of a neighbourhood. This effect is defined by the local average treatment effect (LATE):
+
+$$ 
+LATE^{OBD}_{TC} = E[\frac
+  {TC^{OBD}_{n,t} (TC^{IBD}(LTN=1)) - TC^{OBD}_{n,t} (TC^{IBD}(LTN=0))} 
+  {TC^{IBD}_{n,t} (LTN=1) - TC^{IBD}_{n,t} (LTN=0)} 
+  | TC^{IBD}_{n,t} (LTN=1) < TC^{IBD}_{n,t} (LTN=0) ]
+  $$ 
+where the expectation, $E[\cdot]$, is taken over all neighbourhoods and time periods. The NULL hypothesis is that changes in the traffic counts in inner boundary area, induced by LTNs, have no effect on traffic counts in the outer boundary area: $$ H^{OBD}_{0, TC}: LATE^{OBD}_{TC} = 0 $$. Note that $H^{OBD}_{0, TC}$ is a hypothesis of both causal effect of LTNs on $TC^{IBD}$ and the causal pathway from $LTN_{n,t}$ to $TC^{OBD}_{n,t}$ through $TC^{IBD}_{n,t}$.
+
+## Summary
+
+
+
+Let $TC^{IBD}_{n,t} (s)$ denote the traffic counts in neighbourhood $n$ at time $t$ under treatment status $s \in \{0,1\}$, where $s=1$ indicates the presence of a low-traffic neighbourhood intervention and $s=0$ indicates its absence. Thus, $TC^{IBD}_{n,t}(1)$ represents the potential traffic counts for the internal boundary area of neighbourhood $n$ at time $t$ if a low-traffic neighbourhood intervention is implemented, while $TC^{IBD}_{n,t}(0)$ represents the potential traffic counts if no such intervention is in place.
+
+One causal estimand that defines the causal effect of LTNs on traffic counts is the average treatment effect (ATE): $$ ATE = E[TC^{IBD}_{n,t}(1) - TC^{IBD}_{n,t}(0)] $$ where the expectation, $E[\cdot]$, is taken over all neighbourhoods and time periods.
+
+As far as this policy context is concerned,
