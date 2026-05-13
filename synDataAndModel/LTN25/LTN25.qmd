@@ -1,5 +1,5 @@
 ---
-title: "LTN25"
+title: "Online Appendix: Low Traffic Neighbourhoods"
 author: "Jeff Wu"
 format:
   html:
@@ -8,19 +8,114 @@ format:
     documentclass: scrreprt
 ---
 
-# Causal Mechanisms
+# Theoretical framework
 
-The conceptulised causal mechanism by which low-traffic neighbourhoods (LTNs) affect traffic counts and air pollution are illustrated through the directed acyclic graph (DAG) in Figure \@ref(fig-causalMechanism).
+The hypothesised causal mechanism by which low-traffic neighbourhoods (LTN) affect traffic counts (TC) and air pollution (AP) in various areas of a neighbourhood -- Internal area (INT), Inner Boundary area (IBD), and Outer Boundary area (OBD) -- are illustrated through the directed acyclic graph in @fig-causalMechanism. For clarity, we suppress the potential confounding variables in this graph and focus on the main causal pathways of interest.
 
-![Causal mechanism](figures/causalMechanism){#fig-causalMechanism width=80%}
+![Causal mechanism of LTNs on traffic counts and air pollution](figures/causalMechanism.svg){#fig-causalMechanism width="80%"}
 
+```{=latex}
+% --------------------------------------------
+% Latex TikZ Code (do not render this block)
 
-# Potential Outcomes and Causal Estimands
+\begin{tikzpicture}[
+    % node distance=2.8cm and 2.5cm,
+    % every node/.style={font=\Large},
+    arrow/.style={->, thick}
+]
 
-Let $TC^{s}_{i,t}$ denote the traffic counts in neighbourhood $i$ at time $t$ under treatment status $s \in \{0,1\}$, where $s=1$ indicates the presence of a low-traffic neighbourhood intervention and $s=0$ indicates its absence. Thus, $TC^{1}_{i,t}$ represents the potential traffic counts for neighbourhood $i$ at time $t$ if a low-traffic neighbourhood intervention is implemented, while $TC^{0}_{i,t}$ represents the potential traffic counts if no such intervention is in place. 
+% Top row
+\node (LTN) {$\mathrm{LTN}$};
 
-One causal estimand that defines the causal effect of LTNs on traffic counts is the average treatment effect (ATE):
-$$ ATE = E[TC^{1}_{i,t} - TC^{0}_{i,t}] $$
-where the expectation, $E[\cdot]$, is taken over all neighbourhoods and time periods.
+% Middle row
+\node (TCINT) [below=of LTN]  {$TC^{INT}$};
+\node (TCIBD) [right=of TCINT] {$TC^{IBD}$};
+\node (TCOBD) [right=of TCIBD] {$TC^{OBD}$};
 
-As far as this policy context is concerned, 
+% Bottom row
+\node (APINT) [below=of TCINT] {$AP^{INT}$};
+\node (APIBD) [below=of TCIBD] {$AP^{IBD}$};
+\node (APOBD) [below=of TCOBD] {$AP^{OBD}$};
+
+% Horizontal arrows
+\draw[arrow] (TCINT) -- (TCIBD);
+
+% Vertical arrows
+\draw[arrow] (LTN) -- (TCINT);
+\draw[arrow] (TCINT) -- (APINT);
+\draw[arrow] (TCIBD) -- (APIBD);
+\draw[arrow] (TCOBD) -- (APOBD);
+
+% Diagonal arrows
+\draw[arrow] (TCINT) -- (APIBD);
+\draw[arrow] (TCOBD) -- (APIBD);
+\draw[arrow] (TCIBD) -- (APINT);
+\draw[arrow] (TCIBD) -- (APOBD);
+
+% Curved arrow
+\draw[arrow] (TCINT) to[out=30, in=150, looseness=1.1] (TCOBD);
+
+\end{tikzpicture}
+
+% --------------------------------------------
+```
+
+Whilst most parts of the graph are straightforward, two aspects warrant further remarks. First, the causal pathway, $LTN \rightarrow TC^{INT} \rightarrow TC^{OBD}$, reflects a central policy concern when implementing LTNs: the pass-through traffic that would have traversed the neighbourhood is rerouted to the outer boundary roads. This rerouting mechanism, when present, compromises the intended benefits of LTNs.
+
+Second, there are multiple causal pathways leading to air pollution for each area reflecting the spatial spillover effects of pollutants. For instance, air pollution in the inner boundary area ($AP^{IBD}$) is influenced by not only local traffic counts ($TC^{IBD}$) but also by traffic volumes in adjacent areas ($TC^{INT}$, $TC^{OBD}$). Crucially, if rerouting occurs, we anticipate that the negative effect on $AP^{IBD}$ via $TC^{OBD}$ would offset the positive effects via $TC^{INT}$ and $TC^{IBD}$. This spillover mechanism may generate a gradient of air quality outcomes -- largest improvements near the internal area, diminishing toward the outer boundary, where gains may be limited or negative -- further highlighting the uneven geographic distribution of LTN benefits and burdens.
+
+# Hypothesis
+
+In this section, we formalise six testable statistical hypotheses corresponding to the causal mechanism presented in @fig-causalMechanism. It appears that not all the causal pathways in the graph can be tested with our available data. In serveral instances, we can only test the overall causal effect but cannot disentangle specific causal pathways.
+
+## Traffic Counts in Internal Area
+
+Let $TC^{INT}_{i,n,t} (s)$ denote the traffic counts recorded by sensor $i$ in neighbourhood $n$ at time $t$ under treatment status $s$, where $s=1$ indicates the presence of a low-traffic neighbourhood intervention and $s=0$ indicates its absence. The average treatment effect of LTN intervention on traffic counts in the internal areas of neighbourhoods selected for LTN implementation (i.e., the average treatment effect on the treated, ATT) is defined as:
+
+$$ ATT^{INT}_{TC} = E[TC^{INT}_{i,n,t}(1) - TC^{INT}_{i,n,t}(0) | LTN_{n,t} = 1] $$ {#eq-attTcInt}
+
+where $LTN_{i,n,t}$ is a binary variable where $LTN_{n,t} = 1$ denotes neighbourhood $n$ being selected for LTN intervention at time $t$ and $LTN_{n,t} = 0$ otherwise.
+
+Our first null hypothesis that the causal pathway $LTN \rightarrow TC^{INT}$ does not exist is defined in terms of this ATT:
+
+$$ H^{INT}_{0,TC}: ATT^{INT}_{TC} = 0 $$
+
+In other words, rejecting this null hypothesis would imply that LTNs have a causal effect on traffic counts in the internal area among the neighbourhoods selected for LTN intervention.
+
+## Traffic Counts in Inner and Outer Boundary Areas
+
+Provided that LTN has a causal effect on traffic counts in the internal area (i.e., we reject $H^{INT}_{0, TC}$), we investigate how this effect propagates to traffic counts in the inner boundary area (IBD) and outer boundary area (OBD) of a neighbourhood. The average treatment effect of LTN-induced changes in $TC^{INT}$ on traffic counts in the inner and outer boundary areas (i.e., the local average treatment effect, LATE) are defined as:
+
+$$ 
+LATE^{k}_{TC} 
+= E[\frac
+  {TC^{k}_{i,n,t} (TC^{INT}(1)) - TC^{k}_{i,n,t} (TC^{INT}(0))} 
+  {TC^{INT}_{i,n,t} (1) - TC^{INT}_{i,n,t} (0)} 
+| Complier ]
+  \quad \forall k \in \{IBD, OBD\}
+$$
+where "Complier" denotes neighbourhoods whose internal area traffic counts respond to LTN intervention, formally defined as:
+
+$$ Complier := TC^{INT}_{i,n,t} (1) < TC^{INT}_{i,n,t} (0) $$
+
+Our second and third null hypotheses are defined in terms of these LATEs:
+
+$$ H^{k}_{0, TC}: LATE^{k}_{TC} = 0 \quad \forall k \in \{IBD, OBD\} $$
+
+Rejecting $H^{IBD}_{0, TC}$ would imply that LTNs have a causal effect on traffic counts in the inner boundary area through their effect on traffic counts in the internal area among the neighbourhoods whose traffic counts in the internal area respond to LTN intervention, i.e., the precense of the causal pathway $LTN \rightarrow TC^{INT} \rightarrow TC^{IBD}$. Similarly, rejecting $H^{OBD}_{0, TC}$ would have the same implication for the causal pathway $LTN \rightarrow TC^{INT} \rightarrow TC^{OBD}$.
+
+## Air Pollution in all Areas
+
+Our theoretical framework posits multiple causal pathways from LTNs to air pollution through traffic count changes (as illustrated in @fig-causalMechanism). However, temporal resolution constraints in our air pollution data preclude testing these specific mediation pathways. While traffic count data provides daily observations for the first weeks in November 2021 and 2023 respectively, air pollution measurements are aggregated to monthly averages, preventing the fine-grained temporal analysis required for mediation analysis.
+
+Given these constraints, we focus on estimating the total causal effect of LTN intervention on air pollution across all three spatial areas. This approach captures the net impact of all causal pathways combined, including both direct effects and spillover mechanisms. The average treatment effect of LTN intervention on air pollution in area $k$ of neighbourhoods selected for LTN implementation (i.e., the average treatment effect on the treated, ATT) is given by:
+
+$$ ATT^{k}_{AP} = E[AP^{k}_{j,n,t}(1) - AP^{k}_{j,n,t}(0) | LTN_{n,t} = 1] \quad \forall k \in \{INT, IBD, OBD\} $$ {#eq-attApk}
+
+where the subscript $j$ indexes the air pollution sensors; the other subscripts are as previously defined.
+
+Our fourth, fifth, and sixth null hypotheses are defined in terms of these ATTs:
+
+$$ H^{k}_{0,AP}: ATT^{k}_{AP} = 0 \quad \forall k \in \{INT, IBD, OBD\} $$
+
+Rejecting $H^{k}_{0, AP}$ would imply that LTNs have a causal effect on air pollution in area $k$ among the neighbourhoods selected for LTN intervention. However, we do not disentangle the specific causal pathways from LTNs to air pollution. The estimands $ATT^{k}_{AP}$ represent the net impact of all causal pathways combined.
